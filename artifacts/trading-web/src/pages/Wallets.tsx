@@ -86,16 +86,10 @@ export default function Wallets() {
 
       <div className="flex flex-wrap gap-2">
         <button onClick={() => generate(1)} disabled={loading} className="btn-primary flex items-center gap-2">
-          <Plus className="w-4 h-4" /> Generate Wallet
-        </button>
-        <button onClick={() => generate(5)} disabled={loading} className="btn-secondary flex items-center gap-2">
-          <Plus className="w-4 h-4" /> Generate 5
-        </button>
-        <button onClick={() => generate(10)} disabled={loading} className="btn-secondary flex items-center gap-2">
-          <Plus className="w-4 h-4" /> Generate 10
+          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Generate Wallet
         </button>
         <button onClick={() => setShowImport(!showImport)} className="btn-secondary flex items-center gap-2">
-          <Import className="w-4 h-4" /> Import
+          <Import className="w-4 h-4" /> Import Wallet
         </button>
         <button onClick={loadWallets} disabled={loading} className="btn-secondary flex items-center gap-2">
           <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} /> Refresh
