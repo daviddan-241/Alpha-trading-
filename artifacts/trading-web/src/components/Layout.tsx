@@ -1,43 +1,52 @@
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useApp } from "@/contexts/AppContext";
+import { useLang } from "@/contexts/LanguageContext";
 import {
   LayoutDashboard, ArrowLeftRight, Wallet, Target, Scissors,
   Copy, User, BarChart3, Gift, Settings, Send, Menu, X,
-  ExternalLink, TrendingUp, Zap, LineChart, ChevronRight, Search
+  ExternalLink, TrendingUp, Zap, LineChart, ChevronRight, MessageCircle
 } from "lucide-react";
 
-const NAV_PRIMARY = [
-  { path: "/", label: "Home", icon: LayoutDashboard },
-  { path: "/markets", label: "Markets", icon: LineChart },
-  { path: "/trade", label: "Buy & Sell", icon: ArrowLeftRight },
-  { path: "/wallets", label: "Wallets", icon: Wallet },
-];
+export default function Layout({ children }: { children: React.ReactNode }) {
+  const [location] = useLocation();
+  const [open, setOpen] = useState(false);
+  const { solPrice, wallets, activeWallet, sessionReady } = useApp();
+  const { t } = useLang();
 
-const NAV_TRADING = [
-  { path: "/sniper", label: "Sniper", icon: Target },
-  { path: "/limits", label: "Limit Orders", icon: Scissors },
-  { path: "/copy", label: "Copy Trade", icon: Copy },
-  { path: "/transfer", label: "Transfer SOL", icon: Send },
-];
+  const activeWalletData = wallets[activeWallet];
 
-const NAV_ACCOUNT = [
-  { path: "/trades", label: "Trade History", icon: BarChart3 },
-  { path: "/profile", label: "Profile", icon: User },
-  { path: "/referral", label: "Referral & Cashback", icon: Gift },
-  { path: "/settings", label: "Settings", icon: Settings },
-];
+  const NAV_PRIMARY = [
+    { path: "/", label: t("home"), icon: LayoutDashboard },
+    { path: "/markets", label: t("markets"), icon: LineChart },
+    { path: "/trade", label: t("buySell"), icon: ArrowLeftRight },
+    { path: "/wallets", label: t("wallets"), icon: Wallet },
+    { path: "/chat", label: t("chat"), icon: MessageCircle },
+  ];
 
-const MOBILE_NAV = [
-  { path: "/", label: "Home", icon: LayoutDashboard },
-  { path: "/markets", label: "Markets", icon: LineChart },
-  { path: "/trade", label: "Trade", icon: ArrowLeftRight },
-  { path: "/wallets", label: "Wallets", icon: Wallet },
-  { path: "/profile", label: "Profile", icon: User },
-];
+  const NAV_TRADING = [
+    { path: "/sniper", label: t("sniper"), icon: Target },
+    { path: "/limits", label: t("limitOrders"), icon: Scissors },
+    { path: "/copy", label: t("copyTrade"), icon: Copy },
+    { path: "/transfer", label: t("transferSol"), icon: Send },
+  ];
 
-function NavSection({ title, items, location, onClick }: { title?: string; items: typeof NAV_PRIMARY; location: string; onClick: () => void }) {
-  return (
+  const NAV_ACCOUNT = [
+    { path: "/trades", label: t("tradeHistory"), icon: BarChart3 },
+    { path: "/profile", label: t("profile"), icon: User },
+    { path: "/referral", label: t("referral"), icon: Gift },
+    { path: "/settings", label: t("settings"), icon: Settings },
+  ];
+
+  const MOBILE_NAV = [
+    { path: "/", label: t("home"), icon: LayoutDashboard },
+    { path: "/markets", label: t("markets"), icon: LineChart },
+    { path: "/trade", label: "Trade", icon: ArrowLeftRight },
+    { path: "/wallets", label: t("wallets"), icon: Wallet },
+    { path: "/chat", label: "Chat", icon: MessageCircle },
+  ];
+
+  const NavSection = ({ title, items, onClick }: { title?: string; items: typeof NAV_PRIMARY; onClick: () => void }) => (
     <div>
       {title && <div className="px-3 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">{title}</div>}
       {items.map(({ path, label, icon: Icon }) => (
@@ -54,14 +63,6 @@ function NavSection({ title, items, location, onClick }: { title?: string; items
       ))}
     </div>
   );
-}
-
-export default function Layout({ children }: { children: React.ReactNode }) {
-  const [location] = useLocation();
-  const [open, setOpen] = useState(false);
-  const { solPrice, wallets, activeWallet, sessionReady } = useApp();
-
-  const activeWalletData = wallets[activeWallet];
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">
@@ -85,7 +86,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
         <div className="px-3 py-2.5 border-b border-sidebar-border">
           <div className="flex items-center justify-between mb-1.5">
-            <span className="text-[11px] text-muted-foreground/70 font-medium">SOL PRICE</span>
+            <span className="text-[11px] text-muted-foreground/70 font-medium">{t("solPrice")}</span>
             <div className="flex items-center gap-1">
               <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
               <span className="text-sm font-bold text-primary">${parseFloat(solPrice || "0").toFixed(2)}</span>
@@ -100,25 +101,25 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               <span className="text-[12px] font-semibold text-foreground flex-shrink-0 ml-1">{parseFloat(activeWalletData.balance || "0").toFixed(3)} SOL</span>
             </div>
           ) : sessionReady ? (
-            <div className="text-[11px] text-muted-foreground/60 text-center py-1">No wallet connected</div>
+            <div className="text-[11px] text-muted-foreground/60 text-center py-1">{t("noWallet")}</div>
           ) : null}
         </div>
 
         <nav className="flex-1 overflow-y-auto py-1 px-2 space-y-0">
-          <NavSection items={NAV_PRIMARY} location={location} onClick={() => setOpen(false)} />
-          <NavSection title="Trading" items={NAV_TRADING} location={location} onClick={() => setOpen(false)} />
-          <NavSection title="Account" items={NAV_ACCOUNT} location={location} onClick={() => setOpen(false)} />
+          <NavSection items={NAV_PRIMARY} onClick={() => setOpen(false)} />
+          <NavSection title={t("trading")} items={NAV_TRADING} onClick={() => setOpen(false)} />
+          <NavSection title={t("account")} items={NAV_ACCOUNT} onClick={() => setOpen(false)} />
         </nav>
 
         <div className="px-3 py-3 border-t border-sidebar-border space-y-0.5">
           <a href="https://t.me/AlphaCirclle" target="_blank" rel="noreferrer" className="nav-item">
             <TrendingUp className="w-4 h-4" />
-            <span>Telegram Channel</span>
+            <span>{t("telegramChannel")}</span>
             <ExternalLink className="w-3 h-3 ml-auto opacity-60" />
           </a>
           <a href="https://t.me/Alphacircletrading_bot" target="_blank" rel="noreferrer" className="nav-item">
             <Zap className="w-4 h-4" />
-            <span>Telegram Bot</span>
+            <span>{t("telegramBot")}</span>
             <ExternalLink className="w-3 h-3 ml-auto opacity-60" />
           </a>
         </div>
