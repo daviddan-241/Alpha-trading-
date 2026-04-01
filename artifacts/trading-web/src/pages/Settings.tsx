@@ -1,10 +1,12 @@
 import { useState, useEffect } from "react";
 import { api } from "@/lib/api";
 import { useApp } from "@/contexts/AppContext";
+import { useLang, LANG_OPTIONS } from "@/contexts/LanguageContext";
 import { Save, Shield, AlertTriangle, RefreshCw } from "lucide-react";
 
 export default function Settings() {
   const { refreshSettings } = useApp();
+  const { lang, setLang } = useLang();
   const [settings, setSettings] = useState<any>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -43,13 +45,7 @@ export default function Settings() {
     </div>
   );
 
-  const LANGS = [
-    { code: "en", flag: "🇺🇸", name: "English" },
-    { code: "zh", flag: "🇨🇳", name: "中文" },
-    { code: "ru", flag: "🇷🇺", name: "Русский" },
-    { code: "pt", flag: "🇧🇷", name: "Português" },
-    { code: "vi", flag: "🇻🇳", name: "Tiếng Việt" },
-  ];
+  const LANGS = LANG_OPTIONS;
 
   return (
     <div className="space-y-5 max-w-2xl">
@@ -120,8 +116,8 @@ export default function Settings() {
         <h3 className="font-semibold text-sm">Language</h3>
         <div className="flex flex-wrap gap-2">
           {LANGS.map(l => (
-            <button key={l.code} onClick={() => update("language", l.code)}
-              className={`px-3 py-1.5 rounded-lg text-sm border transition-colors flex items-center gap-1.5 ${settings.language === l.code ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:border-primary/40"}`}>
+            <button key={l.code} onClick={() => { update("language", l.code); setLang(l.code); }}
+              className={`px-3 py-1.5 rounded-lg text-sm border transition-colors flex items-center gap-1.5 ${(settings.language === l.code || lang === l.code) ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:border-primary/40"}`}>
               {l.flag} {l.name}
             </button>
           ))}
