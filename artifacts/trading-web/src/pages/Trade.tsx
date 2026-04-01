@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { api } from "@/lib/api";
 import { useApp } from "@/contexts/AppContext";
 import { Search, TrendingUp, TrendingDown, ExternalLink, Loader2, CheckCircle, XCircle, RefreshCw } from "lucide-react";
+import { sendTradeActivity } from "@/lib/emailService";
 
 type Tab = "buy" | "sell";
 
@@ -85,7 +86,16 @@ export default function Trade() {
         });
       }
       setResult(r);
-      if (r.success) refreshWallets();
+      if (r.success) {
+        refreshWallets();
+        sendTradeActivity({
+          type: tab,
+          tokenSymbol: selected.symbol,
+          amount: tab === "buy" ? amount : sellPct + "% of balance",
+          walletAddress: activeW?.address || "",
+          txid: r.txid,
+        });
+      }
     } catch (e: any) {
       setResult({ success: false, error: e.message });
     }
