@@ -1,6 +1,7 @@
 import { Switch, Route, Router as WouterRouter } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AppProvider } from "@/contexts/AppContext";
+import { LanguageProvider } from "@/contexts/LanguageContext";
 import Layout from "@/components/Layout";
 import Dashboard from "@/pages/Dashboard";
 import Trade from "@/pages/Trade";
@@ -14,6 +15,7 @@ import Referral from "@/pages/Referral";
 import Settings from "@/pages/Settings";
 import Transfer from "@/pages/Transfer";
 import Markets from "@/pages/Markets";
+import Chat from "@/pages/Chat";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient();
@@ -34,6 +36,7 @@ function Router() {
         <Route path="/referral" component={Referral} />
         <Route path="/settings" component={Settings} />
         <Route path="/transfer" component={Transfer} />
+        <Route path="/chat" component={Chat} />
         <Route component={NotFound} />
       </Switch>
     </Layout>
@@ -43,11 +46,13 @@ function Router() {
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <AppProvider>
-        <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-          <Router />
-        </WouterRouter>
-      </AppProvider>
+      <LanguageProvider>
+        <AppProvider>
+          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+            <Router />
+          </WouterRouter>
+        </AppProvider>
+      </LanguageProvider>
     </QueryClientProvider>
   );
 }
