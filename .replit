@@ -33,6 +33,10 @@ args = "Start application"
 task = "workflow.run"
 args = "Frontend Dev Server"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Git Push"
+
 [[workflows.workflow]]
 name = "Start application"
 author = "agent"
@@ -53,6 +57,17 @@ author = "agent"
 task = "shell.exec"
 args = "PORT=22445 BASE_PATH=/ pnpm --filter @workspace/trading-web run dev"
 waitForPort = 22445
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "Git Push"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "bash scripts/git-push.sh"
 
 [workflows.workflow.metadata]
 outputType = "console"
