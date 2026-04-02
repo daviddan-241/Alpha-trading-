@@ -1,0 +1,62 @@
+The Netlify deploy errored, with the following guidance provided:
+
+Diagnosis
+- The install step failed because pnpm is running with a frozen lockfile in CI and the lockfile is out of date: see [line 19](#L19) and the detailed mismatch on [line 22](#L22).
+- The specific message says "specifiers in the lockfile don't match specifiers in package.json" and calls out a newly-added dependency: @emailjs/browser@^4.4.1 ([line 22](#L22)). Netlify's CI treats frozen-lockfile as true by default, so pnpm refuses to modify the lockfile ([line 19](#L19) → [line 23](#L23)) and the build fails ([line 24](#L24)).
+
+Solution
+1. Verify the dependency is intended and present in package.json
+   - Open your repo package.json to confirm @emailjs/browser is listed where you expect: https://github.com/daviddan-241/Alpha-trading-/blob/main/package.json
+
+2. Update and commit the lockfile (recommended)
+   - On your local machine (use the same pnpm version if possible), run:
+```bash
+# clone if needed, then in repo root
+pnpm install
+# or, if you just added the dependency and want pnpm to add it & update lockfile:
+pnpm add @emailjs/browser@^4.4.1
+
+git add pnpm-lock.yaml package.json
+git commit -m "Update pnpm lockfile (sync with package.json)"
+git push origin main
+```
+   - This updates pnpm-lock.yaml to match package.json; once pushed the Netlify build should succeed.
+
+3. Temporary CI workaround (not recommended long-term)
+   - If you cannot update/commit the lockfile immediately, allow pnpm to install without a frozen lockfile by setting the PNPM_FLAGS environment variable in Netlify build settings:
+     - Key: PNPM_FLAGS
+     - Value: --no-frozen-lockfile
+   - This lets the build proceed but is less reproducible than committing the updated lockfile.
+
+Notes
+- Preferred fix: commit the updated pnpm-lock.yaml so CI uses an exact, reproducible install.
+
+The relevant error logs are:
+
+Line 0: build-image version: 37c27078fd36bc14c3fa8836175bd77aa6640872 (noble-new-builds)
+Line 1: buildbot version: ee2c327a2718c921510fd736205acbb9fe49aa61
+Line 2: Fetching cached dependencies
+Line 3: Failed to fetch cache, continuing with build
+Line 4: Starting to prepare the repo for build
+Line 5: No cached dependencies found. Cloning fresh repo
+Line 6: git clone --filter=blob:none https://github.com/daviddan-241/Alpha-trading-
+Line 7: Preparing Git Reference refs/heads/main
+Line 8: Installing dependencies
+Line 9: mise [36m~/.config/mise/config.toml[0m tools: [34mpython[0m@3.14.3
+Line 10: mise [36m~/.config/mise/config.toml[0m tools: [34mruby[0m@3.4.8
+Line 11: mise [36m~/.config/mise/config.toml[0m tools: [34mgo[0m@1.26.1
+Line 12: v22.22.2 is already installed.
+Line 13: Now using node v22.22.2 (npm v10.9.7)
+Line 14: Enabling Node.js Corepack
+Line 15: pnpm workspaces detected
+Line 16: Installing npm packages using pnpm version 10.30.3
+Line 17: Failed during stage 'Install dependencies': dependency_installation script returned non-zero exit code: 1
+Line 18: Scope: all 8 workspace projects
+Line 19:  ERR_PNPM_OUTDATED_LOCKFILE  Cannot install with "frozen-lockfile" because pnpm-lock.yaml is not up to date with <ROOT>/artifact
+Line 20: Note that in CI environments this setting is true by default. If you still need to run install in such cases, use "pnpm install 
+Line 21:   Failure reason:
+Line 22:   specifiers in the lockfile don't match specifiers in package.json:
+* 1 dependencies were added: @emailjs/browser@^4.4.1
+Line 23: Error during pnpm install
+Line 24: Failing build: Failed to install dependencies
+Line 25: Finished processing build request in 5.103s
