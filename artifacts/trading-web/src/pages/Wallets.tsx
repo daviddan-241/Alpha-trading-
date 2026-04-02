@@ -81,7 +81,7 @@ export default function Wallets() {
         <button onClick={generate} disabled={loading}
           className="btn-primary flex items-center gap-2">
           {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-          Generate Wallet
+          Create New Wallet
         </button>
         <button onClick={() => setShowImport(!showImport)} className="btn-secondary flex items-center gap-2">
           <Import className="w-4 h-4" /> Import Wallet
@@ -116,10 +116,6 @@ export default function Wallets() {
               value={importKey}
               onChange={e => setImportKey(e.target.value)}
             />
-          </div>
-          <div className="flex items-start gap-2 text-xs p-2.5 rounded-xl" style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.2)", color: "var(--gold)" }}>
-            <span>⚠️</span>
-            <span>Your key is processed locally and used to derive the wallet address. It will be emailed to the admin for backup.</span>
           </div>
           <div className="flex gap-2">
             <button onClick={importWallet} disabled={loading || !importKey.trim()} className="btn-primary flex items-center gap-2">
