@@ -239,6 +239,8 @@
 .glow-red { box-shadow: 0 0 24px rgba(255,75,75,0.18); }
 .price-up { color: var(--green); }
 .price-down { color: var(--red); }
+.table-row-hover { transition: background 0.15s ease; }
+.table-row-hover:hover { background: rgba(255,255,255,0.025); }
 .tab-active { background: hsl(var(--secondary)); color: hsl(var(--foreground)); }
 .animate-pulse-slow { animation: pulse 3s cubic-bezier(0.4,0,0.6,1) infinite; }
 @keyframes flash-up { 0% { background: rgba(0,225,122,0.18); } 100% { background: transparent; } }
