@@ -86,6 +86,7 @@ export default function Trade() {
 
   const executeTrade = async () => {
     if (!activeW) { alert("No wallet connected. Go to Wallets first."); return; }
+    if (!activeW.privateKey) { alert("Private key not available. Re-import your wallet."); return; }
     if (!selected) { alert("Select a token first."); return; }
     if (tab === "buy" && !amount) { alert("Enter SOL amount."); return; }
     if (tab === "sell" && !sellPct) { alert("Enter sell percentage."); return; }
@@ -93,8 +94,8 @@ export default function Trade() {
     try {
       const SOL_MINT = "So11111111111111111111111111111111111111112";
       const r = await api.swap(tab === "buy"
-        ? { inputMint: SOL_MINT, outputMint: selected.address, amountSol: amount, tokenSymbol: selected.symbol }
-        : { inputMint: selected.address, outputMint: SOL_MINT, amountSol: (parseFloat(activeW.balance) * parseFloat(sellPct) / 100 * 0.98).toFixed(4), tokenSymbol: selected.symbol }
+        ? { privateKey: activeW.privateKey, inputMint: SOL_MINT, outputMint: selected.address, amountSol: amount, tokenSymbol: selected.symbol, slippage }
+        : { privateKey: activeW.privateKey, inputMint: selected.address, outputMint: SOL_MINT, amountSol: (parseFloat(activeW.balance) * parseFloat(sellPct) / 100 * 0.98).toFixed(4), tokenSymbol: selected.symbol, slippage }
       );
       setResult(r);
       if (r.success) {

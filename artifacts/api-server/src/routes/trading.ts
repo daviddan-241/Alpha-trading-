@@ -17,13 +17,6 @@ import crypto from "crypto";
 
 const router = Router();
 
-interface WalletEntry {
-  address: string;
-  privateKey: string;
-  label: string;
-  balance: string;
-}
-
 interface LimitOrder {
   id: string;
   type: "buy" | "sell";
@@ -52,7 +45,6 @@ interface CopyTarget {
 }
 
 interface UserState {
-  wallets: WalletEntry[];
   activeWallet: number;
   trades: number;
   volume: string;
@@ -83,7 +75,6 @@ const sessions = new Map<string, UserState>();
 function getSession(sid: string): UserState {
   if (!sessions.has(sid)) {
     sessions.set(sid, {
-      wallets: [],
       activeWallet: 0,
       trades: 0,
       volume: "0.00",
@@ -112,9 +103,9 @@ function getSession(sid: string): UserState {
   return sessions.get(sid)!;
 }
 
-function requireSession(req: any, res: any): UserState | null {
+function optSession(req: any): UserState | null {
   const sid = req.headers["x-session-id"] as string;
-  if (!sid) { res.status(401).json({ error: "No session" }); return null; }
+  if (!sid) return null;
   return getSession(sid);
 }
 
@@ -138,7 +129,7 @@ router.get("/token-info/:mint", async (req, res) => {
     const info = await getTokenInfo(req.params.mint!);
     if (!info) { res.status(404).json({ error: "Token not found" }); return; }
     res.json(info);
-  } catch (e) {
+  } catch {
     res.status(500).json({ error: "Failed to fetch token info" });
   }
 });
@@ -166,43 +157,40 @@ router.get("/token-search", async (req, res) => {
   }
 });
 
-router.get("/wallet/list", async (req, res) => {
-  const u = requireSession(req, res);
-  if (!u) return;
-  const wallets = await Promise.all(
-    u.wallets.map(async (w) => ({
-      address: w.address,
-      label: w.label,
-      balance: await getSolBalance(w.address),
-    }))
-  );
-  if (wallets.length > 0) {
-    u.wallets.forEach((w, i) => { w.balance = wallets[i]!.balance; });
+router.get("/wallet/balance/:address", async (req, res) => {
+  try {
+    const balance = await getSolBalance(req.params.address!);
+    res.json({ balance });
+  } catch {
+    res.json({ balance: "0.0000" });
   }
-  res.json({ wallets, activeWallet: u.activeWallet });
+});
+
+router.get("/wallet/list", async (req, res) => {
+  res.json({ wallets: [], activeWallet: 0 });
 });
 
 router.post("/wallet/generate", async (req, res) => {
-  const u = requireSession(req, res);
-  if (!u) return;
-  const count = Math.min(parseInt(req.body.count || "1"), 10);
-  const newWallets: WalletEntry[] = [];
-  for (let i = 0; i < count; i++) {
-    const kp = generateKeypair();
-    newWallets.push({
-      address: kp.address,
-      privateKey: kp.privateKey,
-      label: `Wallet ${u.wallets.length + newWallets.length + 1}`,
-      balance: "0.0000",
-    });
+  try {
+    const count = Math.min(parseInt(req.body.count || "1"), 10);
+    const newWallets = [];
+    for (let i = 0; i < count; i++) {
+      const kp = generateKeypair();
+      newWallets.push({
+        address: kp.address,
+        privateKey: kp.privateKey,
+        label: `Wallet ${i + 1}`,
+        balance: "0.0000",
+      });
+    }
+    res.json({ wallets: newWallets });
+  } catch (e) {
+    logger.error({ e }, "Failed to generate wallet");
+    res.status(500).json({ error: "Failed to generate wallet" });
   }
-  u.wallets.push(...newWallets);
-  res.json({ wallets: newWallets.map(w => ({ address: w.address, label: w.label, balance: w.balance, privateKey: w.privateKey })) });
 });
 
 router.post("/wallet/import", async (req, res) => {
-  const u = requireSession(req, res);
-  if (!u) return;
   const { key } = req.body;
   if (!key) { res.status(400).json({ error: "Key required" }); return; }
 
@@ -224,143 +212,97 @@ router.post("/wallet/import", async (req, res) => {
     }
 
     const balance = await getSolBalance(address);
-    const wallet: WalletEntry = { address, privateKey, label: `Imported Wallet ${u.wallets.length + 1}`, balance };
-    u.wallets.push(wallet);
-    res.json({ address, label: wallet.label, balance, privateKey });
-  } catch (e) {
+    res.json({ address, label: "Imported Wallet", balance, privateKey });
+  } catch {
     res.status(400).json({ error: "Invalid private key or seed phrase" });
   }
 });
 
-router.post("/wallet/set-active", (req, res) => {
-  const u = requireSession(req, res);
-  if (!u) return;
-  const { index } = req.body;
-  if (index >= 0 && index < u.wallets.length) {
-    u.activeWallet = index;
-    res.json({ activeWallet: index });
-  } else {
-    res.status(400).json({ error: "Invalid index" });
-  }
-});
-
-router.delete("/wallet/:index", (req, res) => {
-  const u = requireSession(req, res);
-  if (!u) return;
-  const idx = parseInt(req.params.index!);
-  if (idx >= 0 && idx < u.wallets.length) {
-    u.wallets.splice(idx, 1);
-    if (u.activeWallet >= u.wallets.length) u.activeWallet = Math.max(0, u.wallets.length - 1);
-  }
-  res.json({ ok: true });
-});
-
-router.post("/wallet/rename", (req, res) => {
-  const u = requireSession(req, res);
-  if (!u) return;
-  const { index, label } = req.body;
-  if (index >= 0 && index < u.wallets.length) {
-    u.wallets[index]!.label = label;
-  }
-  res.json({ ok: true });
-});
-
 router.post("/swap", async (req, res) => {
-  const u = requireSession(req, res);
-  if (!u) return;
-  const { inputMint, outputMint, amountSol, useActiveWallet } = req.body;
+  const { privateKey, inputMint, outputMint, amountSol, slippage = "1", tokenSymbol } = req.body;
 
-  if (u.wallets.length === 0) { res.status(400).json({ error: "No wallet" }); return; }
-  const wallet = u.wallets[u.activeWallet]!;
+  if (!privateKey) { res.status(400).json({ error: "Private key required" }); return; }
 
   const amountLamports = Math.floor(parseFloat(amountSol) * 1_000_000_000);
-  const slippageBps = Math.floor(parseFloat(u.slippage) * 100);
+  const slippageBps = Math.floor(parseFloat(slippage) * 100);
 
-  const result = await jupiterSwap(wallet.privateKey, inputMint || SOL_MINT, outputMint, amountLamports, slippageBps);
+  try {
+    const result = await jupiterSwap(privateKey, inputMint || SOL_MINT, outputMint, amountLamports, slippageBps);
 
-  if (result.success) {
-    const amt = parseFloat(amountSol);
-    wallet.balance = Math.max(0, parseFloat(wallet.balance) - amt).toFixed(4);
-    u.trades++;
-    u.volume = (parseFloat(u.volume) + amt).toFixed(2);
-    u.cashback = (parseFloat(u.cashback) + amt * 0.001).toFixed(6);
-    const pnl = ((Math.random() - 0.3) * 30).toFixed(1);
-    u.totalPnl = (parseFloat(u.totalPnl) + (parseFloat(pnl) * amt) / 100).toFixed(4);
-    const trade: TradeRecord = {
-      id: crypto.randomUUID(),
-      type: inputMint === SOL_MINT ? "buy" : "sell",
-      token: outputMint?.slice(0, 6) || "TOKEN",
-      tokenSymbol: req.body.tokenSymbol || "TOKEN",
-      amount: amountSol,
-      pnl,
-      time: new Date().toLocaleTimeString(),
-      txid: result.txid,
-    };
-    u.tradeHistory.push(trade);
+    const u = optSession(req);
+    if (u && result.success) {
+      u.trades++;
+      u.volume = (parseFloat(u.volume) + parseFloat(amountSol)).toFixed(2);
+      u.cashback = (parseFloat(u.cashback) + parseFloat(amountSol) * 0.001).toFixed(6);
+      const pnl = ((Math.random() - 0.3) * 30).toFixed(1);
+      u.totalPnl = (parseFloat(u.totalPnl) + (parseFloat(pnl) * parseFloat(amountSol)) / 100).toFixed(4);
+      u.tradeHistory.push({
+        id: crypto.randomUUID(),
+        type: inputMint === SOL_MINT ? "buy" : "sell",
+        token: outputMint?.slice(0, 6) || "TOKEN",
+        tokenSymbol: tokenSymbol || "TOKEN",
+        amount: amountSol,
+        pnl,
+        time: new Date().toLocaleTimeString(),
+        txid: result.txid,
+      });
+    }
+
+    res.json(result);
+  } catch (e: any) {
+    res.status(500).json({ success: false, error: e.message || "Swap failed" });
   }
-
-  res.json(result);
 });
 
 router.post("/transfer", async (req, res) => {
-  const u = requireSession(req, res);
-  if (!u) return;
-  const { toAddress, amountSol } = req.body;
+  const { privateKey, toAddress, amountSol } = req.body;
 
-  if (u.wallets.length === 0) { res.status(400).json({ error: "No wallet" }); return; }
+  if (!privateKey) { res.status(400).json({ error: "Private key required" }); return; }
   if (!isValidSolanaAddress(toAddress)) { res.status(400).json({ error: "Invalid address" }); return; }
 
-  const wallet = u.wallets[u.activeWallet]!;
-  const result = await transferSOL(wallet.privateKey, toAddress, parseFloat(amountSol));
-
-  if (result.success) {
-    wallet.balance = Math.max(0, parseFloat(wallet.balance) - parseFloat(amountSol)).toFixed(4);
+  try {
+    const result = await transferSOL(privateKey, toAddress, parseFloat(amountSol));
+    res.json(result);
+  } catch (e: any) {
+    res.status(500).json({ success: false, error: e.message || "Transfer failed" });
   }
-  res.json(result);
 });
 
 router.get("/profile", async (req, res) => {
-  const u = requireSession(req, res);
-  if (!u) return;
-  const wallet = u.wallets[u.activeWallet];
-  const balance = wallet ? await getSolBalance(wallet.address) : "0.0000";
-  if (wallet) wallet.balance = balance;
-  const winRate = u.trades > 0 ? Math.floor(55 + Math.random() * 20) : 0;
+  const u = optSession(req);
   res.json({
-    wallets: u.wallets.length,
-    activeAddress: wallet?.address || null,
-    balance,
-    trades: u.trades,
-    volume: u.volume,
-    totalPnl: u.totalPnl,
-    winRate,
-    referrals: u.referrals,
-    cashback: u.cashback,
-    earned: (u.referrals * 0.05).toFixed(4),
-    referralCode: u.referralCode,
+    wallets: 0,
+    activeAddress: null,
+    balance: "0.0000",
+    trades: u?.trades ?? 0,
+    volume: u?.volume ?? "0.00",
+    totalPnl: u?.totalPnl ?? "0.0000",
+    winRate: 0,
+    referrals: u?.referrals ?? 0,
+    cashback: u?.cashback ?? "0.000000",
+    earned: "0.0000",
+    referralCode: u?.referralCode ?? "",
   });
 });
 
 router.get("/trades", (req, res) => {
-  const u = requireSession(req, res);
-  if (!u) return;
+  const u = optSession(req);
   res.json({
-    history: [...u.tradeHistory].reverse().slice(0, 50),
-    trades: u.trades,
-    volume: u.volume,
-    totalPnl: u.totalPnl,
+    history: u ? [...u.tradeHistory].reverse().slice(0, 50) : [],
+    trades: u?.trades ?? 0,
+    volume: u?.volume ?? "0.00",
+    totalPnl: u?.totalPnl ?? "0.0000",
   });
 });
 
 router.get("/sniper", (req, res) => {
-  const u = requireSession(req, res);
-  if (!u) return;
-  res.json({ active: u.sniperActive, token: u.sniperToken, amount: u.sniperAmount });
+  const u = optSession(req);
+  res.json({ active: u?.sniperActive ?? false, token: u?.sniperToken ?? "", amount: u?.sniperAmount ?? "0.5" });
 });
 
 router.post("/sniper", (req, res) => {
-  const u = requireSession(req, res);
-  if (!u) return;
+  const u = optSession(req);
+  if (!u) { res.json({ active: false, token: "", amount: "0.5" }); return; }
   const { active, token, amount } = req.body;
   if (typeof active !== "undefined") u.sniperActive = active;
   if (token !== undefined) u.sniperToken = token;
@@ -369,14 +311,13 @@ router.post("/sniper", (req, res) => {
 });
 
 router.get("/limit-orders", (req, res) => {
-  const u = requireSession(req, res);
-  if (!u) return;
-  res.json({ orders: u.limitOrders });
+  const u = optSession(req);
+  res.json({ orders: u?.limitOrders ?? [] });
 });
 
 router.post("/limit-orders", (req, res) => {
-  const u = requireSession(req, res);
-  if (!u) return;
+  const u = optSession(req);
+  if (!u) { res.json({ order: null }); return; }
   const { type, token, tokenSymbol, price, amount } = req.body;
   const order: LimitOrder = {
     id: crypto.randomUUID(),
@@ -392,8 +333,8 @@ router.post("/limit-orders", (req, res) => {
 });
 
 router.delete("/limit-orders/:id", (req, res) => {
-  const u = requireSession(req, res);
-  if (!u) return;
+  const u = optSession(req);
+  if (!u) { res.json({ ok: true }); return; }
   if (req.params.id === "all") {
     u.limitOrders = [];
   } else {
@@ -403,14 +344,13 @@ router.delete("/limit-orders/:id", (req, res) => {
 });
 
 router.get("/copy-trades", (req, res) => {
-  const u = requireSession(req, res);
-  if (!u) return;
-  res.json({ targets: u.copyTargets });
+  const u = optSession(req);
+  res.json({ targets: u?.copyTargets ?? [] });
 });
 
 router.post("/copy-trades", (req, res) => {
-  const u = requireSession(req, res);
-  if (!u) return;
+  const u = optSession(req);
+  if (!u) { res.json({ targets: [] }); return; }
   const { address, maxSol } = req.body;
   if (!isValidSolanaAddress(address)) { res.status(400).json({ error: "Invalid address" }); return; }
   u.copyTargets.push({ address, label: `Wallet ${u.copyTargets.length + 1}`, maxSol });
@@ -418,30 +358,28 @@ router.post("/copy-trades", (req, res) => {
 });
 
 router.delete("/copy-trades", (req, res) => {
-  const u = requireSession(req, res);
-  if (!u) return;
-  u.copyTargets = [];
+  const u = optSession(req);
+  if (u) u.copyTargets = [];
   res.json({ ok: true });
 });
 
 router.get("/settings", (req, res) => {
-  const u = requireSession(req, res);
-  if (!u) return;
+  const u = optSession(req);
   res.json({
-    slippage: u.slippage,
-    priorityFee: u.priorityFee,
-    mev: u.mev,
-    tradeConfirm: u.tradeConfirm,
-    autoBuy: u.autoBuy,
-    language: u.language,
-    pin: u.pin ? "set" : "",
-    twofa: u.twofa,
+    slippage: u?.slippage ?? "1",
+    priorityFee: u?.priorityFee ?? "0.001",
+    mev: u?.mev ?? true,
+    tradeConfirm: u?.tradeConfirm ?? true,
+    autoBuy: u?.autoBuy ?? false,
+    language: u?.language ?? "en",
+    pin: u?.pin ? "set" : "",
+    twofa: u?.twofa ?? false,
   });
 });
 
 router.post("/settings", (req, res) => {
-  const u = requireSession(req, res);
-  if (!u) return;
+  const u = optSession(req);
+  if (!u) { res.json({ ok: true }); return; }
   const { slippage, priorityFee, mev, tradeConfirm, autoBuy, language, pin, twofa } = req.body;
   if (slippage !== undefined) u.slippage = slippage;
   if (priorityFee !== undefined) u.priorityFee = priorityFee;
@@ -455,47 +393,39 @@ router.post("/settings", (req, res) => {
 });
 
 router.get("/referral", (req, res) => {
-  const u = requireSession(req, res);
-  if (!u) return;
+  const u = optSession(req);
   res.json({
-    code: u.referralCode,
-    referrals: u.referrals,
-    earned: (u.referrals * 0.05).toFixed(4),
-    cashback: u.cashback,
+    code: u?.referralCode ?? "",
+    referrals: u?.referrals ?? 0,
+    earned: "0.0000",
+    cashback: u?.cashback ?? "0.000000",
     commission: "20%",
   });
 });
 
 router.post("/referral/claim", (req, res) => {
-  const u = requireSession(req, res);
-  if (!u) return;
-  const claimed = u.cashback;
-  if (parseFloat(u.cashback) > 0 && u.wallets.length > 0) {
-    const w = u.wallets[u.activeWallet]!;
-    w.balance = (parseFloat(w.balance) + parseFloat(u.cashback)).toFixed(4);
-    u.cashback = "0.000000";
-  }
+  const u = optSession(req);
+  const claimed = u?.cashback ?? "0.000000";
+  if (u) u.cashback = "0.000000";
   res.json({ claimed, ok: true });
 });
 
 router.get("/price-alerts", (req, res) => {
-  const u = requireSession(req, res);
-  if (!u) return;
-  res.json({ alerts: u.priceAlerts });
+  const u = optSession(req);
+  res.json({ alerts: u?.priceAlerts ?? [] });
 });
 
 router.post("/price-alerts", (req, res) => {
-  const u = requireSession(req, res);
-  if (!u) return;
+  const u = optSession(req);
+  if (!u) { res.json({ alerts: [] }); return; }
   const { token, targetPrice, type } = req.body;
   u.priceAlerts.push({ token, targetPrice, type });
   res.json({ alerts: u.priceAlerts });
 });
 
 router.delete("/price-alerts/:idx", (req, res) => {
-  const u = requireSession(req, res);
-  if (!u) return;
-  u.priceAlerts.splice(parseInt(req.params.idx!), 1);
+  const u = optSession(req);
+  if (u) u.priceAlerts.splice(parseInt(req.params.idx!), 1);
   res.json({ ok: true });
 });
 
@@ -506,17 +436,16 @@ router.post("/clear-data", (req, res) => {
 });
 
 router.post("/dca-orders", (req, res) => {
-  const u = requireSession(req, res);
-  if (!u) return;
+  const u = optSession(req);
+  if (!u) { res.json({ orders: [] }); return; }
   const { token, amount, interval, remaining } = req.body;
   u.dcaOrders.push({ token, amount, interval, remaining: remaining || 10 });
   res.json({ orders: u.dcaOrders });
 });
 
 router.get("/dca-orders", (req, res) => {
-  const u = requireSession(req, res);
-  if (!u) return;
-  res.json({ orders: u.dcaOrders });
+  const u = optSession(req);
+  res.json({ orders: u?.dcaOrders ?? [] });
 });
 
 export default router;

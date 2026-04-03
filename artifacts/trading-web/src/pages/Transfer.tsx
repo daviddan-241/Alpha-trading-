@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { api } from "@/lib/api";
 import { useApp } from "@/contexts/AppContext";
-import { Send, CheckCircle, XCircle, ExternalLink, Loader2 } from "lucide-react";
+import { Send, CheckCircle, XCircle, ExternalLink, Loader2, AlertTriangle } from "lucide-react";
 
 export default function Transfer() {
   const { wallets, activeWallet, refreshWallets } = useApp();
@@ -18,6 +18,7 @@ export default function Transfer() {
 
   const transfer = async () => {
     if (!activeW) { alert("No wallet connected."); return; }
+    if (!activeW.privateKey) { alert("Private key not available for this wallet."); return; }
     if (!toAddress.trim()) { alert("Enter destination address."); return; }
     if (!amount || parseFloat(amount) <= 0) { alert("Enter amount."); return; }
     if (parseFloat(amount) > parseFloat(activeW.balance || "0")) { alert("Insufficient balance."); return; }
@@ -26,7 +27,7 @@ export default function Transfer() {
     setLoading(true);
     setResult(null);
     try {
-      const r = await api.transfer(toAddress.trim(), amount);
+      const r = await api.transfer(activeW.privateKey, toAddress.trim(), amount);
       setResult(r);
       if (r.success) {
         setToAddress("");
@@ -47,8 +48,9 @@ export default function Transfer() {
       </div>
 
       {!activeW && (
-        <div className="rounded-xl border border-yellow-400/20 bg-yellow-400/5 p-4 text-sm text-yellow-400">
-          ⚠️ You need a wallet to transfer SOL. Go to Wallets first.
+        <div className="rounded-xl border border-yellow-400/20 bg-yellow-400/5 p-4 text-sm text-yellow-400 flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+          You need a wallet to transfer SOL. Go to Wallets first.
         </div>
       )}
 

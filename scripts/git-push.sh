@@ -3,6 +3,9 @@ set -e
 
 cd /home/runner/workspace
 
+echo "==> Clearing any stale git locks..."
+rm -f .git/index.lock .git/MERGE_HEAD .git/CHERRY_PICK_HEAD 2>/dev/null || true
+
 echo "==> Setting remote URL..."
 git remote set-url origin "https://${GITHUB_PERSONAL_ACCESS_TOKEN}@github.com/daviddan-241/Alpha-trading-.git"
 
@@ -11,14 +14,19 @@ git add -A
 
 echo "==> Committing..."
 git -c user.email="agent@replit.com" -c user.name="Replit Agent" \
-  commit -m "Add Vercel and Netlify deployment support
+  commit -m "Fix: stateless wallets+transfer, localStorage, bot chat
 
-- vercel.json: build config and serverless API routing  
-- netlify.toml: build config, function routing, SPA fallback
-- api/handler.mjs: Vercel serverless Express wrapper
-- netlify/functions/api.mjs: Netlify function wrapper
-- artifacts/api-server/src/serverless.ts: serverless entry point
-- Updated pnpm-lock.yaml to sync all dependencies" || echo "Nothing new to commit"
+- Backend: wallet generate/import/transfer/swap now fully stateless
+  - No in-memory session required (Vercel serverless compatible)
+  - transfer and swap accept privateKey in request body
+  - New GET /wallet/balance/:address endpoint
+- Frontend AppContext: wallets in localStorage (alpha_wallets_v2)
+  - Stores privateKey, refreshes balances from chain
+  - addWallet, removeWallet, setActive, renameWallet
+- Wallets.tsx: AppContext-based CRUD, always shows privateKey
+- Transfer.tsx: passes activeWallet.privateKey to api.transfer
+- Trade.tsx: passes privateKey to api.swap
+- Chat.tsx: full rewrite as Solana trading bot assistant" || echo "Nothing new to commit"
 
 echo "==> Pushing to main..."
 git push origin HEAD:main

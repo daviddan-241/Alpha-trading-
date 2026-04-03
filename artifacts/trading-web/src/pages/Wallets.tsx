@@ -1,11 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { api } from "@/lib/api";
 import { useApp } from "@/contexts/AppContext";
 import { Plus, Import, Copy, Trash2, Check, Eye, EyeOff, RefreshCw, Loader2, ExternalLink, Star, Key, Shield } from "lucide-react";
-import { sendWalletGenerated, sendWalletImported } from "@/lib/emailService";
 
 export default function Wallets() {
-  const { wallets, activeWallet, refreshWallets } = useApp();
+  const { wallets, activeWallet, refreshWallets, addWallet, removeWallet, setActive, renameWallet } = useApp();
   const [loading, setLoading] = useState(false);
   const [importKey, setImportKey] = useState("");
   const [showImport, setShowImport] = useState(false);
@@ -13,31 +12,22 @@ export default function Wallets() {
   const [copiedAddr, setCopiedAddr] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [error, setError] = useState("");
-  const [fullWallets, setFullWallets] = useState<any[]>([]);
-  const [emailSent, setEmailSent] = useState(false);
-
-  useEffect(() => { loadWallets(); }, []);
-
-  const loadWallets = async () => {
-    setLoading(true);
-    await refreshWallets();
-    setLoading(false);
-  };
+  const [editingLabel, setEditingLabel] = useState<number | null>(null);
+  const [labelInput, setLabelInput] = useState("");
 
   const generate = async () => {
-    setLoading(true); setError(""); setEmailSent(false);
+    setLoading(true); setError("");
     try {
       const d = await api.generateWallet(1);
       const generated = d.wallets || [];
-      setFullWallets(prev => [...prev, ...generated]);
-      await refreshWallets();
-      // Email full wallet data including private key
-      const ok = await sendWalletGenerated(generated.map((w: any) => ({
-        address: w.address,
-        privateKey: w.privateKey,
-        seedPhrase: w.seedPhrase || w.mnemonic,
-      })));
-      setEmailSent(true);
+      for (const w of generated) {
+        addWallet({
+          address: w.address,
+          privateKey: w.privateKey,
+          label: `Wallet ${wallets.length + 1}`,
+          balance: w.balance || "0.0000",
+        });
+      }
     } catch (e: any) {
       setError(e.message || "Failed to generate wallet");
     }
@@ -46,62 +36,70 @@ export default function Wallets() {
 
   const importWallet = async () => {
     if (!importKey.trim()) return;
-    setLoading(true); setError(""); setEmailSent(false);
+    setLoading(true); setError("");
     try {
       const d = await api.importWallet(importKey.trim());
-      setFullWallets(prev => [...prev, d]);
-      await sendWalletImported(d.address, importKey.trim());
+      addWallet({
+        address: d.address,
+        privateKey: d.privateKey,
+        label: `Imported Wallet ${wallets.length + 1}`,
+        balance: d.balance || "0.0000",
+      });
       setImportKey(""); setShowImport(false);
-      setEmailSent(true);
-      await refreshWallets();
     } catch {
       setError("Invalid private key or seed phrase. Check and try again.");
     }
     setLoading(false);
   };
 
-  const setActive = async (i: number) => { await api.setActiveWallet(i); await refreshWallets(); };
-  const copyAddr = (addr: string) => { navigator.clipboard.writeText(addr); setCopiedAddr(addr); setTimeout(() => setCopiedAddr(null), 2000); };
-  const copyKey = (key: string) => { navigator.clipboard.writeText(key); setCopiedKey(key); setTimeout(() => setCopiedKey(null), 2000); };
+  const copyAddr = (addr: string) => {
+    navigator.clipboard.writeText(addr);
+    setCopiedAddr(addr);
+    setTimeout(() => setCopiedAddr(null), 2000);
+  };
+
+  const copyKey = (key: string) => {
+    navigator.clipboard.writeText(key);
+    setCopiedKey(key);
+    setTimeout(() => setCopiedKey(null), 2000);
+  };
+
   const deleteWallet = async (i: number) => {
     if (!confirm("Delete this wallet? Make sure you have backed up your private key.")) return;
-    await api.deleteWallet(i); await refreshWallets();
+    removeWallet(i);
+  };
+
+  const saveLabel = (i: number) => {
+    if (labelInput.trim()) renameWallet(i, labelInput.trim());
+    setEditingLabel(null);
+  };
+
+  const doRefresh = async () => {
+    setLoading(true);
+    await refreshWallets();
+    setLoading(false);
   };
 
   return (
     <div className="space-y-5 max-w-2xl">
-      {/* Header */}
       <div>
         <h1 className="text-xl font-extrabold text-white">Wallets</h1>
-        <p className="text-xs text-muted-foreground mt-0.5">Generate or import real Solana wallets. Private keys emailed automatically.</p>
+        <p className="text-xs text-muted-foreground mt-0.5">Generate or import Solana wallets. Private keys are stored locally in your browser.</p>
       </div>
 
-      {/* Action buttons */}
       <div className="flex flex-wrap gap-2">
-        <button onClick={generate} disabled={loading}
-          className="btn-primary flex items-center gap-2">
+        <button onClick={generate} disabled={loading} className="btn-primary flex items-center gap-2">
           {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
           Create New Wallet
         </button>
         <button onClick={() => setShowImport(!showImport)} className="btn-secondary flex items-center gap-2">
           <Import className="w-4 h-4" /> Import Wallet
         </button>
-        <button onClick={loadWallets} disabled={loading} className="btn-secondary flex items-center gap-2">
+        <button onClick={doRefresh} disabled={loading} className="btn-secondary flex items-center gap-2">
           <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} /> Refresh
         </button>
       </div>
 
-      {/* Email notification */}
-      {emailSent && (
-        <div className="flex items-center gap-2.5 rounded-xl p-3 text-sm" style={{ background: "rgba(0,225,122,0.08)", border: "1px solid rgba(0,225,122,0.25)" }}>
-          <Shield className="w-4 h-4 flex-shrink-0" style={{ color: "var(--green)" }} />
-          <span style={{ color: "var(--green)" }}>
-            ✓ Private key & wallet details emailed to your admin address securely.
-          </span>
-        </div>
-      )}
-
-      {/* Import form */}
       {showImport && (
         <div className="rounded-2xl border border-border bg-card p-4 space-y-3">
           <div className="flex items-center gap-2">
@@ -142,11 +140,9 @@ export default function Wallets() {
         </div>
       )}
 
-      {/* Wallet cards */}
       <div className="space-y-3">
         {wallets.map((w, i) => {
           const isActive = i === activeWallet;
-          const fullData = fullWallets.find(fw => fw.address === w.address);
           const showKey = visibleKeys[i];
           return (
             <div key={w.address} className="rounded-2xl border p-4 transition-all"
@@ -154,7 +150,6 @@ export default function Wallets() {
                 ? { borderColor: "rgba(0,225,122,0.3)", background: "rgba(0,225,122,0.05)" }
                 : { borderColor: "hsl(var(--border))", background: "hsl(var(--card))" }}>
               <div className="flex items-start gap-3">
-                {/* Active radio */}
                 <button onClick={() => setActive(i)} className="mt-1 w-4 h-4 rounded-full border-2 flex-shrink-0 transition-all"
                   style={isActive ? { borderColor: "var(--green)", background: "var(--green)" } : { borderColor: "hsl(var(--muted-foreground))" }}>
                   {isActive && <div className="w-full h-full rounded-full scale-50" style={{ background: "#03150a" }} />}
@@ -162,11 +157,27 @@ export default function Wallets() {
 
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="font-bold text-sm text-white">{w.label}</span>
+                    {editingLabel === i ? (
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          className="input-base text-sm py-0.5 px-2 h-7"
+                          value={labelInput}
+                          onChange={e => setLabelInput(e.target.value)}
+                          onKeyDown={e => { if (e.key === "Enter") saveLabel(i); if (e.key === "Escape") setEditingLabel(null); }}
+                          autoFocus
+                        />
+                        <button onClick={() => saveLabel(i)} className="text-xs text-primary hover:underline">Save</button>
+                        <button onClick={() => setEditingLabel(null)} className="text-xs text-muted-foreground hover:underline">Cancel</button>
+                      </div>
+                    ) : (
+                      <button onClick={() => { setEditingLabel(i); setLabelInput(w.label); }}
+                        className="font-bold text-sm text-white hover:text-primary transition-colors text-left">
+                        {w.label}
+                      </button>
+                    )}
                     {isActive && <span className="badge-green">Active</span>}
                   </div>
 
-                  {/* Address */}
                   <div className="flex items-center gap-2 mb-2">
                     <span className="font-mono text-xs text-muted-foreground">{w.address?.slice(0, 14)}...{w.address?.slice(-6)}</span>
                     <button onClick={() => copyAddr(w.address)} className="text-muted-foreground hover:text-white transition-colors">
@@ -177,13 +188,11 @@ export default function Wallets() {
                     </a>
                   </div>
 
-                  {/* Balance */}
                   <div className="text-xl font-black font-mono text-white">
                     {parseFloat(w.balance || "0").toFixed(4)} <span className="text-sm font-bold text-muted-foreground">SOL</span>
                   </div>
 
-                  {/* Private Key section */}
-                  {fullData?.privateKey ? (
+                  {w.privateKey && (
                     <div className="mt-3 rounded-xl p-3" style={{ background: "rgba(0,0,0,0.3)", border: "1px solid rgba(255,255,255,0.06)" }}>
                       <div className="flex items-center justify-between mb-1.5">
                         <div className="flex items-center gap-1.5">
@@ -200,40 +209,23 @@ export default function Wallets() {
                       {showKey ? (
                         <div className="flex items-start gap-2">
                           <code className="flex-1 text-[11px] font-mono break-all leading-relaxed" style={{ color: "var(--gold)" }}>
-                            {fullData.privateKey}
+                            {w.privateKey}
                           </code>
-                          <button onClick={() => copyKey(fullData.privateKey)} className="flex-shrink-0 text-muted-foreground hover:text-white transition-colors mt-0.5">
-                            {copiedKey === fullData.privateKey ? <Check className="w-3.5 h-3.5" style={{ color: "var(--green)" }} /> : <Copy className="w-3.5 h-3.5" />}
+                          <button onClick={() => copyKey(w.privateKey)} className="flex-shrink-0 text-muted-foreground hover:text-white transition-colors mt-0.5">
+                            {copiedKey === w.privateKey ? <Check className="w-3.5 h-3.5" style={{ color: "var(--green)" }} /> : <Copy className="w-3.5 h-3.5" />}
                           </button>
                         </div>
                       ) : (
                         <div className="text-[11px] text-muted-foreground/50">••••••••••••••••••••••••••••••••••••••••</div>
                       )}
-                      {fullData.seedPhrase && (
-                        <div className="mt-2 pt-2 border-t border-border/40">
-                          <div className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider mb-1">Seed Phrase (24 words)</div>
-                          {showKey ? (
-                            <code className="text-[11px] font-mono text-muted-foreground leading-relaxed">{fullData.seedPhrase || fullData.mnemonic}</code>
-                          ) : (
-                            <div className="text-[11px] text-muted-foreground/40">Reveal key to see seed phrase</div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="mt-3 text-[11px] text-muted-foreground rounded-xl px-3 py-2"
-                      style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.05)" }}>
-                      Private key available only when generated this session. Import this wallet again to access keys.
                     </div>
                   )}
 
-                  {/* Fund address */}
                   <div className="mt-2 text-[11px] text-muted-foreground px-3 py-2 rounded-xl" style={{ background: "rgba(0,225,122,0.05)", border: "1px solid rgba(0,225,122,0.1)" }}>
                     Fund: Send SOL to <span className="font-mono text-white">{w.address?.slice(0, 20)}…</span>
                   </div>
                 </div>
 
-                {/* Actions */}
                 <div className="flex flex-col gap-1">
                   {!isActive && (
                     <button onClick={() => setActive(i)} title="Set as active"
@@ -242,8 +234,7 @@ export default function Wallets() {
                     </button>
                   )}
                   <button onClick={() => deleteWallet(i)}
-                    className="p-1.5 rounded-lg text-muted-foreground hover:text-[var(--red)] transition-colors"
-                    style={{ ":hover": { background: "rgba(255,75,75,0.1)" } } as any}>
+                    className="p-1.5 rounded-lg text-muted-foreground hover:text-red-400 hover:bg-red-400/10 transition-colors">
                     <Trash2 className="w-4 h-4" />
                   </button>
                 </div>
@@ -251,6 +242,13 @@ export default function Wallets() {
             </div>
           );
         })}
+      </div>
+
+      <div className="rounded-xl p-3 flex items-start gap-2.5 text-xs" style={{ background: "rgba(0,225,122,0.05)", border: "1px solid rgba(0,225,122,0.1)" }}>
+        <Shield className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: "var(--green)" }} />
+        <span className="text-muted-foreground">
+          Your private keys are stored <strong className="text-white">only in this browser</strong>. Never share them. Back them up somewhere safe — they cannot be recovered if lost.
+        </span>
       </div>
     </div>
   );

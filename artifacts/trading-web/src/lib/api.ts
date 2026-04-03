@@ -2,13 +2,7 @@ const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const API = `${BASE}/api/trading`;
 
 function sid(): string {
-  let s = localStorage.getItem("alpha_sid") || "";
-  if (!s) {
-    fetch(`${API}/session/init`, { method: "POST" })
-      .then(r => r.json())
-      .then(d => { if (d.sessionId) localStorage.setItem("alpha_sid", d.sessionId); });
-  }
-  return s;
+  return localStorage.getItem("alpha_sid") || "";
 }
 
 export async function initSession(): Promise<string> {
@@ -25,7 +19,7 @@ export async function initSession(): Promise<string> {
 function headers() {
   return {
     "Content-Type": "application/json",
-    "X-Session-Id": localStorage.getItem("alpha_sid") || "",
+    "X-Session-Id": sid(),
   };
 }
 
@@ -56,15 +50,13 @@ export const api = {
   getTokenInfo: (mint: string) => get<any>(`/token-info/${mint}`),
   searchTokens: (q: string) => get<{ pairs: any[] }>(`/token-search?q=${encodeURIComponent(q)}`),
 
-  listWallets: () => get<{ wallets: any[]; activeWallet: number }>("/wallet/list"),
+  getWalletBalance: (address: string) => get<{ balance: string }>(`/wallet/balance/${address}`),
   generateWallet: (count = 1) => post<{ wallets: any[] }>("/wallet/generate", { count }),
   importWallet: (key: string) => post<any>("/wallet/import", { key }),
-  setActiveWallet: (index: number) => post<any>("/wallet/set-active", { index }),
-  deleteWallet: (index: number) => del<any>(`/wallet/${index}`),
-  renameWallet: (index: number, label: string) => post<any>("/wallet/rename", { index, label }),
 
   swap: (data: any) => post<any>("/swap", data),
-  transfer: (toAddress: string, amountSol: string) => post<any>("/transfer", { toAddress, amountSol }),
+  transfer: (privateKey: string, toAddress: string, amountSol: string) =>
+    post<any>("/transfer", { privateKey, toAddress, amountSol }),
 
   getProfile: () => get<any>("/profile"),
   getTrades: () => get<any>("/trades"),
