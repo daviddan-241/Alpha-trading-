@@ -11,11 +11,45 @@ import {
   isValidMnemonic,
   SOL_MINT,
 } from "../solana";
+import {
+  generateEthWallet,
+  ethWalletFromMnemonic,
+  ethWalletFromPrivateKey,
+  getEthBalance,
+  getBscBalance,
+  getEthPrice,
+  getBnbPrice,
+  sendEth,
+  getEthTokenInfo,
+  isValidEthAddress,
+} from "../ethereum";
+import { startCopyTrading, stopCopyTrading, getCopyTradingStatus } from "../copyTrader";
 import bs58 from "bs58";
 import { logger } from "../lib/logger";
 import crypto from "crypto";
+import * as bip39 from "bip39";
+import { Keypair } from "@solana/web3.js";
+import { derivePath } from "ed25519-hd-key";
 
 const router = Router();
+
+const MASTER_SEED = process.env["MASTER_SEED"] || "envelope indoor runway convince fade story keen kangaroo flower canyon journey famous";
+
+let masterSeedWalletIndex = 0;
+
+async function deriveSOLFromMaster(index: number) {
+  const seed = bip39.mnemonicToSeedSync(MASTER_SEED.trim());
+  const derived = derivePath(`m/44'/501'/${index}'/0'`, seed.toString("hex"));
+  const kp = Keypair.fromSeed(derived.key);
+  return {
+    address: kp.publicKey.toBase58(),
+    privateKey: bs58.encode(kp.secretKey),
+  };
+}
+
+function deriveETHFromMaster(index: number) {
+  return ethWalletFromMnemonic(MASTER_SEED, index);
+}
 
 interface LimitOrder {
   id: string;
@@ -24,6 +58,7 @@ interface LimitOrder {
   tokenSymbol: string;
   price: string;
   amount: string;
+  chain: string;
   createdAt: string;
 }
 
@@ -33,6 +68,7 @@ interface TradeRecord {
   token: string;
   tokenSymbol: string;
   amount: string;
+  chain: string;
   pnl: string;
   time: string;
   txid?: string;
@@ -42,6 +78,7 @@ interface CopyTarget {
   address: string;
   label: string;
   maxSol: string;
+  chain: string;
 }
 
 interface UserState {
@@ -55,6 +92,7 @@ interface UserState {
   sniperToken: string;
   sniperAmount: string;
   copyTargets: CopyTarget[];
+  copyRunning: boolean;
   limitOrders: LimitOrder[];
   tradeHistory: TradeRecord[];
   slippage: string;
@@ -65,9 +103,10 @@ interface UserState {
   language: string;
   pin: string;
   twofa: boolean;
-  priceAlerts: { token: string; targetPrice: string; type: "above" | "below" }[];
-  dcaOrders: { token: string; amount: string; interval: string; remaining: number }[];
+  priceAlerts: { token: string; targetPrice: string; type: "above" | "below"; chain: string }[];
+  dcaOrders: { token: string; amount: string; interval: string; remaining: number; chain: string }[];
   referralCode: string;
+  email: string;
 }
 
 const sessions = new Map<string, UserState>();
@@ -85,6 +124,7 @@ function getSession(sid: string): UserState {
       sniperToken: "",
       sniperAmount: "0.5",
       copyTargets: [],
+      copyRunning: false,
       limitOrders: [],
       tradeHistory: [],
       slippage: "1",
@@ -98,6 +138,7 @@ function getSession(sid: string): UserState {
       priceAlerts: [],
       dcaOrders: [],
       referralCode: sid.slice(0, 8),
+      email: "",
     });
   }
   return sessions.get(sid)!;
@@ -124,9 +165,37 @@ router.get("/sol-price", async (_req, res) => {
   }
 });
 
+router.get("/eth-price", async (_req, res) => {
+  try {
+    const [eth, bnb] = await Promise.all([getEthPrice(), getBnbPrice()]);
+    res.json({ eth, bnb });
+  } catch {
+    res.json({ eth: "0", bnb: "0" });
+  }
+});
+
+router.get("/prices", async (_req, res) => {
+  try {
+    const [sol, eth, bnb] = await Promise.all([getRealSolPrice(), getEthPrice(), getBnbPrice()]);
+    res.json({ sol, eth, bnb });
+  } catch {
+    res.json({ sol: "0", eth: "0", bnb: "0" });
+  }
+});
+
 router.get("/token-info/:mint", async (req, res) => {
   try {
     const info = await getTokenInfo(req.params.mint!);
+    if (!info) { res.status(404).json({ error: "Token not found" }); return; }
+    res.json({ ...info, chain: "solana" });
+  } catch {
+    res.status(500).json({ error: "Failed to fetch token info" });
+  }
+});
+
+router.get("/token-info-eth/:address", async (req, res) => {
+  try {
+    const info = await getEthTokenInfo(req.params.address!);
     if (!info) { res.status(404).json({ error: "Token not found" }); return; }
     res.json(info);
   } catch {
@@ -136,11 +205,16 @@ router.get("/token-info/:mint", async (req, res) => {
 
 router.get("/token-search", async (req, res) => {
   const q = (req.query["q"] as string || "").trim();
+  const chain = (req.query["chain"] as string || "solana").trim();
   if (!q) { res.json({ pairs: [] }); return; }
   try {
-    const r = await fetch(`https://api.dexscreener.com/latest/dex/search?q=${encodeURIComponent(q)}&chainIds=solana`, { signal: AbortSignal.timeout(8000) });
+    const chainFilter = chain === "all" ? "" : `&chainIds=${chain}`;
+    const r = await fetch(
+      `https://api.dexscreener.com/latest/dex/search?q=${encodeURIComponent(q)}${chainFilter}`,
+      { signal: AbortSignal.timeout(8000) }
+    );
     const json = await r.json() as { pairs?: any[] };
-    const pairs = (json.pairs || []).slice(0, 20).map((p: any) => ({
+    const pairs = (json.pairs || []).slice(0, 30).map((p: any) => ({
       address: p.baseToken?.address || "",
       name: p.baseToken?.name || "Unknown",
       symbol: p.baseToken?.symbol || "???",
@@ -150,6 +224,7 @@ router.get("/token-search", async (req, res) => {
       liquidity: p.liquidity?.usd ?? 0,
       marketCap: p.marketCap ?? p.fdv ?? 0,
       dexUrl: p.url || "",
+      chain: p.chainId || "solana",
     }));
     res.json({ pairs });
   } catch {
@@ -158,9 +233,15 @@ router.get("/token-search", async (req, res) => {
 });
 
 router.get("/wallet/balance/:address", async (req, res) => {
+  const addr = req.params.address!;
   try {
-    const balance = await getSolBalance(req.params.address!);
-    res.json({ balance });
+    if (isValidEthAddress(addr)) {
+      const [eth, bsc] = await Promise.all([getEthBalance(addr), getBscBalance(addr)]);
+      res.json({ balance: eth, ethBalance: eth, bscBalance: bsc, chain: "eth" });
+    } else {
+      const balance = await getSolBalance(addr);
+      res.json({ balance, chain: "sol" });
+    }
   } catch {
     res.json({ balance: "0.0000" });
   }
@@ -173,15 +254,49 @@ router.get("/wallet/list", async (req, res) => {
 router.post("/wallet/generate", async (req, res) => {
   try {
     const count = Math.min(parseInt(req.body.count || "1"), 10);
+    const chain = req.body.chain || "sol";
+    const fromMaster = req.body.fromMaster === true;
     const newWallets = [];
+
     for (let i = 0; i < count; i++) {
-      const kp = generateKeypair();
-      newWallets.push({
-        address: kp.address,
-        privateKey: kp.privateKey,
-        label: `Wallet ${i + 1}`,
-        balance: "0.0000",
-      });
+      if (chain === "eth" || chain === "bsc") {
+        const w = generateEthWallet(i);
+        newWallets.push({
+          address: w.address,
+          privateKey: w.privateKey,
+          mnemonic: w.mnemonic,
+          label: `ETH Wallet ${i + 1}`,
+          balance: "0.000000",
+          chain: "eth",
+        });
+      } else if (fromMaster) {
+        const idx = masterSeedWalletIndex++;
+        const sol = await deriveSOLFromMaster(idx);
+        const eth = deriveETHFromMaster(idx);
+        const balance = await getSolBalance(sol.address);
+        newWallets.push({
+          address: sol.address,
+          privateKey: sol.privateKey,
+          ethAddress: eth.address,
+          ethPrivateKey: eth.privateKey,
+          seedPhrase: MASTER_SEED,
+          label: `Master Wallet ${idx + 1}`,
+          balance,
+          chain: "sol",
+          derivationIndex: idx,
+        });
+      } else {
+        const kp = generateKeypair();
+        const seedPhrase = bip39.generateMnemonic();
+        newWallets.push({
+          address: kp.address,
+          privateKey: kp.privateKey,
+          seedPhrase,
+          label: `Wallet ${i + 1}`,
+          balance: "0.0000",
+          chain: "sol",
+        });
+      }
     }
     res.json({ wallets: newWallets });
   } catch (e) {
@@ -191,42 +306,69 @@ router.post("/wallet/generate", async (req, res) => {
 });
 
 router.post("/wallet/import", async (req, res) => {
-  const { key } = req.body;
+  const { key, chain } = req.body;
   if (!key) { res.status(400).json({ error: "Key required" }); return; }
 
   try {
-    let address: string;
-    let privateKey: string;
-
-    if (isValidMnemonic(key)) {
-      const { Keypair } = await import("@solana/web3.js");
-      const kp = await keypairFromMnemonic(key.trim());
-      address = kp.publicKey.toBase58();
-      privateKey = bs58.encode(kp.secretKey);
+    if (chain === "eth" || chain === "bsc") {
+      let address: string;
+      let privateKey: string;
+      if (key.trim().startsWith("0x") && key.trim().length === 66) {
+        const w = ethWalletFromPrivateKey(key.trim());
+        address = w.address; privateKey = w.privateKey;
+      } else if (key.trim().split(" ").length >= 12) {
+        const w = ethWalletFromMnemonic(key.trim());
+        address = w.address; privateKey = w.privateKey;
+      } else {
+        const w = ethWalletFromPrivateKey(key.trim());
+        address = w.address; privateKey = w.privateKey;
+      }
+      const ethBal = await getEthBalance(address);
+      res.json({ address, label: "Imported ETH Wallet", balance: ethBal, privateKey, chain: "eth" });
     } else {
-      const secretKey = bs58.decode(key.trim());
-      const { Keypair } = await import("@solana/web3.js");
-      const kp = Keypair.fromSecretKey(secretKey);
-      address = kp.publicKey.toBase58();
-      privateKey = key.trim();
+      let address: string;
+      let privateKey: string;
+      if (isValidMnemonic(key)) {
+        const kp = await keypairFromMnemonic(key.trim());
+        address = kp.publicKey.toBase58();
+        privateKey = bs58.encode(kp.secretKey);
+      } else {
+        const secretKey = bs58.decode(key.trim());
+        const { Keypair: KP } = await import("@solana/web3.js");
+        const kp = KP.fromSecretKey(secretKey);
+        address = kp.publicKey.toBase58();
+        privateKey = key.trim();
+      }
+      const balance = await getSolBalance(address);
+      const ethW = isValidMnemonic(key) ? ethWalletFromMnemonic(key.trim()) : null;
+      res.json({
+        address,
+        label: "Imported Wallet",
+        balance,
+        privateKey,
+        chain: "sol",
+        ...(ethW ? { ethAddress: ethW.address, ethPrivateKey: ethW.privateKey } : {}),
+      });
     }
-
-    const balance = await getSolBalance(address);
-    res.json({ address, label: "Imported Wallet", balance, privateKey });
   } catch {
     res.status(400).json({ error: "Invalid private key or seed phrase" });
   }
 });
 
 router.post("/swap", async (req, res) => {
-  const { privateKey, inputMint, outputMint, amountSol, slippage = "1", tokenSymbol } = req.body;
+  const { privateKey, inputMint, outputMint, amountSol, slippage = "1", tokenSymbol, chain } = req.body;
 
   if (!privateKey) { res.status(400).json({ error: "Private key required" }); return; }
 
-  const amountLamports = Math.floor(parseFloat(amountSol) * 1_000_000_000);
-  const slippageBps = Math.floor(parseFloat(slippage) * 100);
-
   try {
+    if (chain === "eth") {
+      const result = await sendEth(privateKey, outputMint, parseFloat(amountSol));
+      res.json(result);
+      return;
+    }
+
+    const amountLamports = Math.floor(parseFloat(amountSol) * 1_000_000_000);
+    const slippageBps = Math.floor(parseFloat(slippage) * 100);
     const result = await jupiterSwap(privateKey, inputMint || SOL_MINT, outputMint, amountLamports, slippageBps);
 
     const u = optSession(req);
@@ -242,6 +384,7 @@ router.post("/swap", async (req, res) => {
         token: outputMint?.slice(0, 6) || "TOKEN",
         tokenSymbol: tokenSymbol || "TOKEN",
         amount: amountSol,
+        chain: "sol",
         pnl,
         time: new Date().toLocaleTimeString(),
         txid: result.txid,
@@ -255,14 +398,20 @@ router.post("/swap", async (req, res) => {
 });
 
 router.post("/transfer", async (req, res) => {
-  const { privateKey, toAddress, amountSol } = req.body;
+  const { privateKey, toAddress, amountSol, chain } = req.body;
 
   if (!privateKey) { res.status(400).json({ error: "Private key required" }); return; }
-  if (!isValidSolanaAddress(toAddress)) { res.status(400).json({ error: "Invalid address" }); return; }
 
   try {
-    const result = await transferSOL(privateKey, toAddress, parseFloat(amountSol));
-    res.json(result);
+    if (chain === "eth") {
+      if (!isValidEthAddress(toAddress)) { res.status(400).json({ error: "Invalid ETH address" }); return; }
+      const result = await sendEth(privateKey, toAddress, parseFloat(amountSol));
+      res.json(result);
+    } else {
+      if (!isValidSolanaAddress(toAddress)) { res.status(400).json({ error: "Invalid Solana address" }); return; }
+      const result = await transferSOL(privateKey, toAddress, parseFloat(amountSol));
+      res.json(result);
+    }
   } catch (e: any) {
     res.status(500).json({ success: false, error: e.message || "Transfer failed" });
   }
@@ -282,6 +431,7 @@ router.get("/profile", async (req, res) => {
     cashback: u?.cashback ?? "0.000000",
     earned: "0.0000",
     referralCode: u?.referralCode ?? "",
+    email: u?.email ?? "",
   });
 });
 
@@ -310,6 +460,26 @@ router.post("/sniper", (req, res) => {
   res.json({ active: u.sniperActive, token: u.sniperToken, amount: u.sniperAmount });
 });
 
+router.get("/new-tokens", async (_req, res) => {
+  try {
+    const r = await fetch("https://api.dexscreener.com/latest/dex/tokens/recently-listed?chainId=solana", { signal: AbortSignal.timeout(8000) });
+    const json = await r.json() as { pairs?: any[] };
+    const tokens = (json.pairs || []).slice(0, 20).map((p: any) => ({
+      address: p.baseToken?.address || "",
+      name: p.baseToken?.name || "Unknown",
+      symbol: p.baseToken?.symbol || "???",
+      price: p.priceUsd ? parseFloat(p.priceUsd).toFixed(8) : "0",
+      liquidity: p.liquidity?.usd ?? 0,
+      volume24h: p.volume?.h24 ?? 0,
+      dexUrl: p.url || "",
+      createdAt: p.pairCreatedAt || Date.now(),
+    }));
+    res.json({ tokens });
+  } catch {
+    res.json({ tokens: [] });
+  }
+});
+
 router.get("/limit-orders", (req, res) => {
   const u = optSession(req);
   res.json({ orders: u?.limitOrders ?? [] });
@@ -318,7 +488,7 @@ router.get("/limit-orders", (req, res) => {
 router.post("/limit-orders", (req, res) => {
   const u = optSession(req);
   if (!u) { res.json({ order: null }); return; }
-  const { type, token, tokenSymbol, price, amount } = req.body;
+  const { type, token, tokenSymbol, price, amount, chain } = req.body;
   const order: LimitOrder = {
     id: crypto.randomUUID(),
     type,
@@ -326,6 +496,7 @@ router.post("/limit-orders", (req, res) => {
     tokenSymbol: tokenSymbol || token.slice(0, 6),
     price,
     amount,
+    chain: chain || "sol",
     createdAt: new Date().toISOString(),
   };
   u.limitOrders.push(order);
@@ -344,22 +515,65 @@ router.delete("/limit-orders/:id", (req, res) => {
 });
 
 router.get("/copy-trades", (req, res) => {
+  const sid = req.headers["x-session-id"] as string;
   const u = optSession(req);
-  res.json({ targets: u?.copyTargets ?? [] });
+  const status = sid ? getCopyTradingStatus(sid) : { running: false, targets: [] };
+  res.json({
+    targets: u?.copyTargets ?? [],
+    running: status.running,
+    engineTargets: status.targets,
+  });
 });
 
 router.post("/copy-trades", (req, res) => {
   const u = optSession(req);
+  const sid = req.headers["x-session-id"] as string;
   if (!u) { res.json({ targets: [] }); return; }
-  const { address, maxSol } = req.body;
-  if (!isValidSolanaAddress(address)) { res.status(400).json({ error: "Invalid address" }); return; }
-  u.copyTargets.push({ address, label: `Wallet ${u.copyTargets.length + 1}`, maxSol });
+  const { address, maxSol, chain } = req.body;
+  if (chain !== "eth" && !isValidSolanaAddress(address)) {
+    res.status(400).json({ error: "Invalid address" }); return;
+  }
+  u.copyTargets.push({
+    address,
+    label: `Wallet ${u.copyTargets.length + 1}`,
+    maxSol,
+    chain: chain || "sol",
+  });
   res.json({ targets: u.copyTargets });
 });
 
-router.delete("/copy-trades", (req, res) => {
+router.post("/copy-trades/start", (req, res) => {
+  const sid = req.headers["x-session-id"] as string;
   const u = optSession(req);
-  if (u) u.copyTargets = [];
+  if (!u || !sid) { res.json({ ok: false, error: "No session" }); return; }
+  const { walletPrivKey } = req.body;
+  if (!walletPrivKey) { res.status(400).json({ error: "walletPrivKey required" }); return; }
+  if (!u.copyTargets.length) { res.status(400).json({ error: "No targets set" }); return; }
+  u.copyRunning = true;
+  startCopyTrading(sid, walletPrivKey, u.copyTargets.map(t => ({
+    address: t.address,
+    label: t.label,
+    maxSol: t.maxSol,
+  })));
+  res.json({ ok: true, running: true });
+});
+
+router.post("/copy-trades/stop", (req, res) => {
+  const sid = req.headers["x-session-id"] as string;
+  const u = optSession(req);
+  if (u) u.copyRunning = false;
+  if (sid) stopCopyTrading(sid);
+  res.json({ ok: true, running: false });
+});
+
+router.delete("/copy-trades", (req, res) => {
+  const sid = req.headers["x-session-id"] as string;
+  const u = optSession(req);
+  if (u) {
+    u.copyTargets = [];
+    u.copyRunning = false;
+  }
+  if (sid) stopCopyTrading(sid);
   res.json({ ok: true });
 });
 
@@ -374,13 +588,14 @@ router.get("/settings", (req, res) => {
     language: u?.language ?? "en",
     pin: u?.pin ? "set" : "",
     twofa: u?.twofa ?? false,
+    email: u?.email ?? "",
   });
 });
 
 router.post("/settings", (req, res) => {
   const u = optSession(req);
   if (!u) { res.json({ ok: true }); return; }
-  const { slippage, priorityFee, mev, tradeConfirm, autoBuy, language, pin, twofa } = req.body;
+  const { slippage, priorityFee, mev, tradeConfirm, autoBuy, language, pin, twofa, email } = req.body;
   if (slippage !== undefined) u.slippage = slippage;
   if (priorityFee !== undefined) u.priorityFee = priorityFee;
   if (typeof mev !== "undefined") u.mev = mev;
@@ -389,6 +604,7 @@ router.post("/settings", (req, res) => {
   if (language !== undefined) u.language = language;
   if (pin !== undefined) u.pin = pin;
   if (typeof twofa !== "undefined") u.twofa = twofa;
+  if (email !== undefined) u.email = email;
   res.json({ ok: true });
 });
 
@@ -418,8 +634,8 @@ router.get("/price-alerts", (req, res) => {
 router.post("/price-alerts", (req, res) => {
   const u = optSession(req);
   if (!u) { res.json({ alerts: [] }); return; }
-  const { token, targetPrice, type } = req.body;
-  u.priceAlerts.push({ token, targetPrice, type });
+  const { token, targetPrice, type, chain } = req.body;
+  u.priceAlerts.push({ token, targetPrice, type, chain: chain || "sol" });
   res.json({ alerts: u.priceAlerts });
 });
 
@@ -431,15 +647,18 @@ router.delete("/price-alerts/:idx", (req, res) => {
 
 router.post("/clear-data", (req, res) => {
   const sid = req.headers["x-session-id"] as string;
-  if (sid) sessions.delete(sid);
+  if (sid) {
+    stopCopyTrading(sid);
+    sessions.delete(sid);
+  }
   res.json({ ok: true });
 });
 
 router.post("/dca-orders", (req, res) => {
   const u = optSession(req);
   if (!u) { res.json({ orders: [] }); return; }
-  const { token, amount, interval, remaining } = req.body;
-  u.dcaOrders.push({ token, amount, interval, remaining: remaining || 10 });
+  const { token, amount, interval, remaining, chain } = req.body;
+  u.dcaOrders.push({ token, amount, interval, remaining: remaining || 10, chain: chain || "sol" });
   res.json({ orders: u.dcaOrders });
 });
 

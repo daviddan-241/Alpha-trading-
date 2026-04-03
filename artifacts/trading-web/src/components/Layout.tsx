@@ -13,7 +13,7 @@ import {
 export default function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const [open, setOpen] = useState(false);
-  const { solPrice, wallets, activeWallet, sessionReady } = useApp();
+  const { solPrice, ethPrice, wallets, activeWallet, sessionReady } = useApp();
   const { t } = useLang();
   const activeWalletData = wallets[activeWallet];
 
@@ -88,17 +88,25 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           </button>
         </div>
 
-        {/* Wallet + SOL price */}
+        {/* Wallet + prices */}
         <div className="px-3 py-3 border-b border-sidebar-border space-y-2">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1.5">
               <div className="live-dot" />
-              <span className="text-[11px] text-muted-foreground font-medium">SOL / USD</span>
+              <span className="text-[11px] text-muted-foreground font-medium">SOL</span>
             </div>
             <span className="text-sm font-bold font-mono" style={{ color: "var(--green)" }}>
               ${solNum.toFixed(2)}
             </span>
           </div>
+          {ethPrice && ethPrice !== "0" && (
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] text-muted-foreground font-medium">ETH</span>
+              <span className="text-sm font-bold font-mono" style={{ color: "#627EEA" }}>
+                ${parseFloat(ethPrice).toLocaleString("en-US", { maximumFractionDigits: 0 })}
+              </span>
+            </div>
+          )}
           {activeWalletData ? (
             <div className="flex items-center justify-between rounded-xl px-3 py-2"
               style={{ background: "rgba(0,225,122,0.06)", border: "1px solid rgba(0,225,122,0.12)" }}>

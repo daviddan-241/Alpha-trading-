@@ -47,22 +47,28 @@ async function del<T>(path: string): Promise<T> {
 
 export const api = {
   getSolPrice: () => get<{ price: string }>("/sol-price"),
+  getEthPrice: () => get<{ eth: string; bnb: string }>("/eth-price"),
+  getAllPrices: () => get<{ sol: string; eth: string; bnb: string }>("/prices"),
   getTokenInfo: (mint: string) => get<any>(`/token-info/${mint}`),
-  searchTokens: (q: string) => get<{ pairs: any[] }>(`/token-search?q=${encodeURIComponent(q)}`),
+  getTokenInfoEth: (addr: string) => get<any>(`/token-info-eth/${addr}`),
+  searchTokens: (q: string, chain = "all") => get<{ pairs: any[] }>(`/token-search?q=${encodeURIComponent(q)}&chain=${chain}`),
+  getNewTokens: () => get<{ tokens: any[] }>("/new-tokens"),
 
-  getWalletBalance: (address: string) => get<{ balance: string }>(`/wallet/balance/${address}`),
-  generateWallet: (count = 1) => post<{ wallets: any[] }>("/wallet/generate", { count }),
-  importWallet: (key: string) => post<any>("/wallet/import", { key }),
+  getWalletBalance: (address: string) => get<{ balance: string; ethBalance?: string; chain?: string }>(`/wallet/balance/${address}`),
+  generateWallet: (count = 1, chain = "sol", fromMaster = false) =>
+    post<{ wallets: any[] }>("/wallet/generate", { count, chain, fromMaster }),
+  importWallet: (key: string, chain = "sol") => post<any>("/wallet/import", { key, chain }),
 
   swap: (data: any) => post<any>("/swap", data),
-  transfer: (privateKey: string, toAddress: string, amountSol: string) =>
-    post<any>("/transfer", { privateKey, toAddress, amountSol }),
+  transfer: (privateKey: string, toAddress: string, amountSol: string, chain = "sol") =>
+    post<any>("/transfer", { privateKey, toAddress, amountSol, chain }),
 
   getProfile: () => get<any>("/profile"),
   getTrades: () => get<any>("/trades"),
 
   getSniper: () => get<any>("/sniper"),
   setSniper: (data: any) => post<any>("/sniper", data),
+  getNewTokens2: () => get<any>("/new-tokens"),
 
   getLimitOrders: () => get<any>("/limit-orders"),
   createLimitOrder: (data: any) => post<any>("/limit-orders", data),
@@ -70,7 +76,11 @@ export const api = {
   deleteAllLimitOrders: () => del<any>("/limit-orders/all"),
 
   getCopyTrades: () => get<any>("/copy-trades"),
-  addCopyTrade: (address: string, maxSol: string) => post<any>("/copy-trades", { address, maxSol }),
+  addCopyTrade: (address: string, maxSol: string, chain = "sol") =>
+    post<any>("/copy-trades", { address, maxSol, chain }),
+  startCopyTrading: (walletPrivKey: string) =>
+    post<any>("/copy-trades/start", { walletPrivKey }),
+  stopCopyTrading: () => post<any>("/copy-trades/stop"),
   clearCopyTrades: () => del<any>("/copy-trades"),
 
   getSettings: () => get<any>("/settings"),

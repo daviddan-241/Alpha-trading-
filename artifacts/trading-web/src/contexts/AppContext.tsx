@@ -1,19 +1,24 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { api, initSession } from "@/lib/api";
 
-const WALLETS_KEY = "alpha_wallets_v2";
+const WALLETS_KEY = "alpha_wallets_v3";
 const ACTIVE_KEY = "alpha_active_idx";
 
 export interface StoredWallet {
   address: string;
   privateKey: string;
+  seedPhrase?: string;
+  ethAddress?: string;
+  ethPrivateKey?: string;
   label: string;
   balance: string;
+  chain?: "sol" | "eth" | "bsc";
 }
 
 interface AppState {
   sessionReady: boolean;
   solPrice: string;
+  ethPrice: string;
   wallets: StoredWallet[];
   activeWallet: number;
   profile: any;
@@ -30,7 +35,10 @@ interface AppState {
 
 function loadFromStorage(): StoredWallet[] {
   try {
-    return JSON.parse(localStorage.getItem(WALLETS_KEY) || "[]");
+    const v3 = JSON.parse(localStorage.getItem(WALLETS_KEY) || "[]");
+    if (v3.length) return v3;
+    const v2 = JSON.parse(localStorage.getItem("alpha_wallets_v2") || "[]");
+    return v2.map((w: any) => ({ ...w, chain: w.chain || "sol" }));
   } catch {
     return [];
   }
@@ -51,6 +59,7 @@ function saveActiveIdx(idx: number) {
 const AppContext = createContext<AppState>({
   sessionReady: false,
   solPrice: "0",
+  ethPrice: "0",
   wallets: [],
   activeWallet: 0,
   profile: null,
@@ -68,6 +77,7 @@ const AppContext = createContext<AppState>({
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [sessionReady, setSessionReady] = useState(false);
   const [solPrice, setSolPrice] = useState("0");
+  const [ethPrice, setEthPrice] = useState("0");
   const [wallets, setWallets] = useState<StoredWallet[]>(loadFromStorage);
   const [activeWallet, setActiveWalletState] = useState<number>(loadActiveIdx);
   const [profile, setProfile] = useState<any>(null);
@@ -92,7 +102,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const addWallet = useCallback((w: StoredWallet) => {
     setWallets(prev => {
-      const next = [...prev, w];
+      const next = [...prev, { ...w, chain: w.chain || "sol" }];
       saveToStorage(next);
       return next;
     });
@@ -141,9 +151,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const refreshSolPrice = useCallback(async () => {
     try {
-      const d = await api.getSolPrice();
-      setSolPrice(d.price);
-    } catch {}
+      const d = await api.getAllPrices();
+      setSolPrice(d.sol);
+      setEthPrice(d.eth);
+    } catch {
+      try {
+        const d = await api.getSolPrice();
+        setSolPrice(d.price);
+      } catch {}
+    }
   }, []);
 
   useEffect(() => {
@@ -165,7 +181,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AppContext.Provider value={{
-      sessionReady, solPrice, wallets, activeWallet, profile, settings,
+      sessionReady, solPrice, ethPrice, wallets, activeWallet, profile, settings,
       refreshWallets, refreshProfile, refreshSettings, refreshSolPrice,
       addWallet, removeWallet, setActive, renameWallet,
     }}>
