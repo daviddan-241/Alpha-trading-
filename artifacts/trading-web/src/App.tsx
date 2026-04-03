@@ -16,6 +16,7 @@ import Settings from "@/pages/Settings";
 import Transfer from "@/pages/Transfer";
 import Markets from "@/pages/Markets";
 import Chat from "@/pages/Chat";
+import Signals from "@/pages/Signals";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient();
@@ -24,19 +25,20 @@ function Router() {
   return (
     <Layout>
       <Switch>
-        <Route path="/" component={Dashboard} />
+        <Route path="/"        component={Dashboard} />
         <Route path="/markets" component={Markets} />
-        <Route path="/trade" component={Trade} />
+        <Route path="/signals" component={Signals} />
+        <Route path="/trade"   component={Trade} />
         <Route path="/wallets" component={Wallets} />
-        <Route path="/sniper" component={Sniper} />
-        <Route path="/limits" component={LimitOrders} />
-        <Route path="/copy" component={CopyTrade} />
+        <Route path="/sniper"  component={Sniper} />
+        <Route path="/limits"  component={LimitOrders} />
+        <Route path="/copy"    component={CopyTrade} />
         <Route path="/profile" component={Profile} />
-        <Route path="/trades" component={Trades} />
-        <Route path="/referral" component={Referral} />
-        <Route path="/settings" component={Settings} />
-        <Route path="/transfer" component={Transfer} />
-        <Route path="/chat" component={Chat} />
+        <Route path="/trades"  component={Trades} />
+        <Route path="/referral"component={Referral} />
+        <Route path="/settings"component={Settings} />
+        <Route path="/transfer"component={Transfer} />
+        <Route path="/chat"    component={Chat} />
         <Route component={NotFound} />
       </Switch>
     </Layout>

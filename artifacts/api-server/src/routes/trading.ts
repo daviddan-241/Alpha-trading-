@@ -17,11 +17,15 @@ import {
   ethWalletFromPrivateKey,
   getEthBalance,
   getBscBalance,
+  getEvmBalance,
   getEthPrice,
   getBnbPrice,
+  getAllPrices,
   sendEth,
   getEthTokenInfo,
   isValidEthAddress,
+  isEvmChain,
+  CHAIN_NATIVE,
 } from "../ethereum";
 import { startCopyTrading, stopCopyTrading, getCopyTradingStatus } from "../copyTrader";
 import bs58 from "bs58";
@@ -176,10 +180,40 @@ router.get("/eth-price", async (_req, res) => {
 
 router.get("/prices", async (_req, res) => {
   try {
-    const [sol, eth, bnb] = await Promise.all([getRealSolPrice(), getEthPrice(), getBnbPrice()]);
-    res.json({ sol, eth, bnb });
+    const [solPrice, prices] = await Promise.all([getRealSolPrice(), getAllPrices()]);
+    res.json({ sol: solPrice, ...prices });
   } catch {
-    res.json({ sol: "0", eth: "0", bnb: "0" });
+    res.json({ sol: "0", eth: "0", bnb: "0", matic: "0", avax: "0", arb: "0" });
+  }
+});
+
+router.get("/trending", async (_req, res) => {
+  try {
+    const [boosted, trending] = await Promise.all([
+      fetch("https://api.dexscreener.com/token-boosts/latest/v1", { signal: AbortSignal.timeout(8000) }).then(r => r.json()).catch(() => ({})),
+      fetch("https://api.dexscreener.com/latest/dex/search?q=trending", { signal: AbortSignal.timeout(8000) }).then(r => r.json()).catch(() => ({ pairs: [] })),
+    ]);
+    const boostedArr = Array.isArray(boosted) ? boosted : (boosted as any).tokenAddresses || [];
+    const pairs = ((trending as any).pairs || []).slice(0, 50).map((p: any) => ({
+      address: p.baseToken?.address || "",
+      name: p.baseToken?.name || "Unknown",
+      symbol: p.baseToken?.symbol || "???",
+      price: p.priceUsd ? parseFloat(p.priceUsd).toFixed(8) : "0",
+      priceChange1h: p.priceChange?.h1 ?? 0,
+      priceChange24h: p.priceChange?.h24 ?? 0,
+      volume24h: p.volume?.h24 ?? 0,
+      liquidity: p.liquidity?.usd ?? 0,
+      marketCap: p.marketCap ?? p.fdv ?? 0,
+      dexUrl: p.url || "",
+      chain: p.chainId || "solana",
+      pairAddress: p.pairAddress || "",
+      quoteToken: p.quoteToken?.symbol || "SOL",
+      txns24h: (p.txns?.h24?.buys || 0) + (p.txns?.h24?.sells || 0),
+      isBoosted: boostedArr.some((b: any) => b.tokenAddress === p.baseToken?.address),
+    }));
+    res.json({ pairs });
+  } catch {
+    res.json({ pairs: [] });
   }
 });
 
@@ -234,10 +268,12 @@ router.get("/token-search", async (req, res) => {
 
 router.get("/wallet/balance/:address", async (req, res) => {
   const addr = req.params.address!;
+  const chain = (req.query["chain"] as string) || "";
   try {
     if (isValidEthAddress(addr)) {
-      const [eth, bsc] = await Promise.all([getEthBalance(addr), getBscBalance(addr)]);
-      res.json({ balance: eth, ethBalance: eth, bscBalance: bsc, chain: "eth" });
+      const targetChain = isEvmChain(chain) ? chain : "eth";
+      const balance = await getEvmBalance(addr, targetChain);
+      res.json({ balance, chain: targetChain });
     } else {
       const balance = await getSolBalance(addr);
       res.json({ balance, chain: "sol" });
@@ -253,39 +289,12 @@ router.get("/wallet/list", async (req, res) => {
 
 router.post("/wallet/generate", async (req, res) => {
   try {
-    const count = Math.min(parseInt(req.body.count || "1"), 10);
-    const chain = req.body.chain || "sol";
-    const fromMaster = req.body.fromMaster === true;
+    const count = Math.min(parseInt(req.body.count || "1"), 5);
+    const chain = (req.body.chain || "sol").toLowerCase();
     const newWallets = [];
 
     for (let i = 0; i < count; i++) {
-      if (chain === "eth" || chain === "bsc") {
-        const w = generateEthWallet(i);
-        newWallets.push({
-          address: w.address,
-          privateKey: w.privateKey,
-          mnemonic: w.mnemonic,
-          label: `ETH Wallet ${i + 1}`,
-          balance: "0.000000",
-          chain: "eth",
-        });
-      } else if (fromMaster) {
-        const idx = masterSeedWalletIndex++;
-        const sol = await deriveSOLFromMaster(idx);
-        const eth = deriveETHFromMaster(idx);
-        const balance = await getSolBalance(sol.address);
-        newWallets.push({
-          address: sol.address,
-          privateKey: sol.privateKey,
-          ethAddress: eth.address,
-          ethPrivateKey: eth.privateKey,
-          seedPhrase: MASTER_SEED,
-          label: `Master Wallet ${idx + 1}`,
-          balance,
-          chain: "sol",
-          derivationIndex: idx,
-        });
-      } else {
+      if (chain === "sol") {
         const kp = generateKeypair();
         const seedPhrase = bip39.generateMnemonic();
         newWallets.push({
@@ -296,6 +305,21 @@ router.post("/wallet/generate", async (req, res) => {
           balance: "0.0000",
           chain: "sol",
         });
+      } else if (isEvmChain(chain)) {
+        const w = generateEthWallet(i);
+        const nativeTicker = CHAIN_NATIVE[chain] || "ETH";
+        newWallets.push({
+          address: w.address,
+          privateKey: w.privateKey,
+          seedPhrase: w.mnemonic,
+          label: `${chain.toUpperCase()} Wallet ${i + 1}`,
+          balance: "0.000000",
+          chain,
+          nativeTicker,
+        });
+      } else {
+        res.status(400).json({ error: `Unsupported chain: ${chain}` });
+        return;
       }
     }
     res.json({ wallets: newWallets });
@@ -306,26 +330,27 @@ router.post("/wallet/generate", async (req, res) => {
 });
 
 router.post("/wallet/import", async (req, res) => {
-  const { key, chain } = req.body;
+  const { key, chain: rawChain } = req.body;
   if (!key) { res.status(400).json({ error: "Key required" }); return; }
+  const chain = (rawChain || "sol").toLowerCase();
 
   try {
-    if (chain === "eth" || chain === "bsc") {
+    if (isEvmChain(chain)) {
       let address: string;
       let privateKey: string;
-      if (key.trim().startsWith("0x") && key.trim().length === 66) {
-        const w = ethWalletFromPrivateKey(key.trim());
-        address = w.address; privateKey = w.privateKey;
-      } else if (key.trim().split(" ").length >= 12) {
-        const w = ethWalletFromMnemonic(key.trim());
+      const trimmed = key.trim();
+      if (trimmed.split(" ").length >= 12) {
+        const w = ethWalletFromMnemonic(trimmed);
         address = w.address; privateKey = w.privateKey;
       } else {
-        const w = ethWalletFromPrivateKey(key.trim());
+        const w = ethWalletFromPrivateKey(trimmed);
         address = w.address; privateKey = w.privateKey;
       }
-      const ethBal = await getEthBalance(address);
-      res.json({ address, label: "Imported ETH Wallet", balance: ethBal, privateKey, chain: "eth" });
+      const balance = await getEvmBalance(address, chain);
+      const nativeTicker = CHAIN_NATIVE[chain] || "ETH";
+      res.json({ address, label: `Imported ${chain.toUpperCase()} Wallet`, balance, privateKey, chain, nativeTicker });
     } else {
+      // Solana
       let address: string;
       let privateKey: string;
       if (isValidMnemonic(key)) {
@@ -340,15 +365,7 @@ router.post("/wallet/import", async (req, res) => {
         privateKey = key.trim();
       }
       const balance = await getSolBalance(address);
-      const ethW = isValidMnemonic(key) ? ethWalletFromMnemonic(key.trim()) : null;
-      res.json({
-        address,
-        label: "Imported Wallet",
-        balance,
-        privateKey,
-        chain: "sol",
-        ...(ethW ? { ethAddress: ethW.address, ethPrivateKey: ethW.privateKey } : {}),
-      });
+      res.json({ address, label: "Imported SOL Wallet", balance, privateKey, chain: "sol" });
     }
   } catch {
     res.status(400).json({ error: "Invalid private key or seed phrase" });

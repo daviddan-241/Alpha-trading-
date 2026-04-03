@@ -7,41 +7,56 @@ import {
   LayoutDashboard, ArrowLeftRight, Wallet, Target, Scissors,
   Copy, User, BarChart3, Gift, Settings, Send, Menu, X,
   ExternalLink, TrendingUp, Zap, LineChart, ChevronRight, MessageCircle,
-  Radio
+  Radio, Flame,
 } from "lucide-react";
+
+const ALL_CHAINS_ICON: Record<string, string> = {
+  sol: "◎", eth: "Ξ", bsc: "⬡", matic: "♦", avax: "▲", arb: "Ⓐ", op: "⊙", base: "◈",
+};
+const ALL_CHAINS_COLOR: Record<string, string> = {
+  sol: "#9945FF", eth: "#627EEA", bsc: "#F0B90B", matic: "#8247E5",
+  avax: "#E84142", arb: "#12AAFF", op: "#FF0420", base: "#0052FF",
+};
+const ALL_CHAINS_SCAN: Record<string, string> = {
+  sol: "https://solscan.io/account/", eth: "https://etherscan.io/address/",
+  bsc: "https://bscscan.com/address/", matic: "https://polygonscan.com/address/",
+  avax: "https://snowtrace.io/address/", arb: "https://arbiscan.io/address/",
+  op: "https://optimistic.etherscan.io/address/", base: "https://basescan.org/address/",
+};
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const [open, setOpen] = useState(false);
-  const { solPrice, ethPrice, wallets, activeWallet, sessionReady } = useApp();
+  const { totalUsd, wallets, activeWallet, sessionReady } = useApp();
   const { t } = useLang();
-  const activeWalletData = wallets[activeWallet];
+  const activeW = wallets[activeWallet];
 
   const NAV_PRIMARY = [
-    { path: "/", label: t("home"), icon: LayoutDashboard },
-    { path: "/markets", label: t("markets"), icon: LineChart },
-    { path: "/trade", label: t("buySell"), icon: ArrowLeftRight },
-    { path: "/wallets", label: t("wallets"), icon: Wallet },
-    { path: "/chat", label: t("chat"), icon: MessageCircle },
+    { path: "/",       label: t("home"),    icon: LayoutDashboard },
+    { path: "/markets",label: t("markets"), icon: LineChart },
+    { path: "/signals",label: "Signals 🔥", icon: Flame },
+    { path: "/trade",  label: t("buySell"), icon: ArrowLeftRight },
+    { path: "/wallets",label: t("wallets"), icon: Wallet },
+    { path: "/chat",   label: t("chat"),    icon: MessageCircle },
   ];
   const NAV_TRADING = [
-    { path: "/sniper", label: t("sniper"), icon: Target },
+    { path: "/sniper", label: t("sniper"),      icon: Target },
     { path: "/limits", label: t("limitOrders"), icon: Scissors },
-    { path: "/copy", label: t("copyTrade"), icon: Copy },
-    { path: "/transfer", label: t("transferSol"), icon: Send },
+    { path: "/copy",   label: t("copyTrade"),   icon: Copy },
+    { path: "/transfer",label: t("transferSol"),icon: Send },
   ];
   const NAV_ACCOUNT = [
-    { path: "/trades", label: t("tradeHistory"), icon: BarChart3 },
-    { path: "/profile", label: t("profile"), icon: User },
-    { path: "/referral", label: t("referral"), icon: Gift },
-    { path: "/settings", label: t("settings"), icon: Settings },
+    { path: "/trades",  label: t("tradeHistory"), icon: BarChart3 },
+    { path: "/profile", label: t("profile"),      icon: User },
+    { path: "/referral",label: t("referral"),     icon: Gift },
+    { path: "/settings",label: t("settings"),     icon: Settings },
   ];
   const MOBILE_NAV = [
-    { path: "/", label: t("home"), icon: LayoutDashboard },
-    { path: "/markets", label: t("markets"), icon: LineChart },
-    { path: "/trade", label: "Trade", icon: ArrowLeftRight },
-    { path: "/wallets", label: t("wallets"), icon: Wallet },
-    { path: "/chat", label: "Chat", icon: MessageCircle },
+    { path: "/",       label: t("home"),    icon: LayoutDashboard },
+    { path: "/signals",label: "Signals",    icon: Flame },
+    { path: "/trade",  label: "Trade",      icon: ArrowLeftRight },
+    { path: "/wallets",label: t("wallets"), icon: Wallet },
+    { path: "/copy",   label: "Copy",       icon: Copy },
   ];
 
   const NavSection = ({ title, items, onClick }: { title?: string; items: typeof NAV_PRIMARY; onClick: () => void }) => (
@@ -63,7 +78,14 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     </div>
   );
 
-  const solNum = parseFloat(solPrice || "0");
+  const chain = activeW?.chain || "sol";
+  const chainIcon  = ALL_CHAINS_ICON[chain]  || "◎";
+  const chainColor = ALL_CHAINS_COLOR[chain] || "#9945FF";
+  const scanBase   = ALL_CHAINS_SCAN[chain]  || "https://solscan.io/account/";
+  const ticker     = activeW?.nativeTicker || (chain === "sol" ? "SOL" : chain.toUpperCase());
+  const balance    = parseFloat(activeW?.balance || "0");
+  const balUsd     = activeW?.balanceUsd ? parseFloat(activeW.balanceUsd) : null;
+  const totalUsdNum = parseFloat(totalUsd || "0");
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">
@@ -88,42 +110,57 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           </button>
         </div>
 
-        {/* Wallet + prices */}
+        {/* Portfolio & active wallet */}
         <div className="px-3 py-3 border-b border-sidebar-border space-y-2">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-1.5">
-              <div className="live-dot" />
-              <span className="text-[11px] text-muted-foreground font-medium">SOL</span>
-            </div>
-            <span className="text-sm font-bold font-mono" style={{ color: "var(--green)" }}>
-              ${solNum.toFixed(2)}
-            </span>
-          </div>
-          {ethPrice && ethPrice !== "0" && (
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] text-muted-foreground font-medium">ETH</span>
-              <span className="text-sm font-bold font-mono" style={{ color: "#627EEA" }}>
-                ${parseFloat(ethPrice).toLocaleString("en-US", { maximumFractionDigits: 0 })}
-              </span>
+          {/* Total portfolio USD */}
+          {wallets.length > 0 && (
+            <div className="rounded-xl px-3 py-2"
+              style={{ background: "rgba(0,225,122,0.06)", border: "1px solid rgba(0,225,122,0.12)" }}>
+              <div className="text-[10px] text-muted-foreground font-medium">Total Portfolio</div>
+              <div className="text-lg font-black font-mono leading-tight mt-0.5"
+                style={{ color: totalUsdNum > 0 ? "var(--green)" : "hsl(var(--muted-foreground))" }}>
+                ${totalUsdNum > 0 ? totalUsdNum.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}
+              </div>
+              <div className="text-[10px] text-muted-foreground">{wallets.length} wallet{wallets.length !== 1 ? "s" : ""}</div>
             </div>
           )}
-          {activeWalletData ? (
-            <div className="flex items-center justify-between rounded-xl px-3 py-2"
-              style={{ background: "rgba(0,225,122,0.06)", border: "1px solid rgba(0,225,122,0.12)" }}>
-              <div className="flex items-center gap-2 min-w-0">
-                <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: "var(--green)" }} />
-                <span className="font-mono text-[11px] text-muted-foreground truncate">
-                  {activeWalletData.address?.slice(0, 6)}…{activeWalletData.address?.slice(-4)}
-                </span>
+
+          {/* Active wallet card */}
+          {activeW ? (
+            <div>
+              <div className="text-[10px] text-muted-foreground/60 px-1 mb-1">Active wallet</div>
+              <div className="rounded-xl px-3 py-2"
+                style={{ background: chainColor + "10", border: `1px solid ${chainColor}22` }}>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-sm font-bold" style={{ color: chainColor }}>{chainIcon}</span>
+                  <span className="font-mono text-[11px] text-muted-foreground truncate flex-1">
+                    {activeW.address?.slice(0, 8)}…{activeW.address?.slice(-4)}
+                  </span>
+                  <a href={scanBase + activeW.address} target="_blank" rel="noreferrer"
+                    className="text-muted-foreground/50 hover:text-white">
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+                <div className="flex items-end justify-between">
+                  <div>
+                    <div className="text-base font-black font-mono text-white">
+                      {balance.toFixed(4)} <span className="text-xs font-bold text-muted-foreground">{ticker}</span>
+                    </div>
+                    {balUsd !== null && balUsd > 0 && (
+                      <div className="text-[11px] text-muted-foreground">≈ ${balUsd.toFixed(2)}</div>
+                    )}
+                  </div>
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded"
+                    style={{ background: chainColor + "22", color: chainColor }}>
+                    {chain.toUpperCase()}
+                  </span>
+                </div>
               </div>
-              <span className="text-xs font-bold text-white ml-1 font-mono">
-                {parseFloat(activeWalletData.balance || "0").toFixed(3)}
-              </span>
             </div>
           ) : sessionReady ? (
             <Link href="/wallets">
-              <div className="text-[11px] text-muted-foreground/60 text-center py-1.5 cursor-pointer hover:text-primary transition-colors">
-                + Connect wallet
+              <div className="text-[11px] text-muted-foreground/60 text-center py-2 cursor-pointer hover:text-primary transition-colors border border-dashed border-border rounded-xl">
+                + Create wallet
               </div>
             </Link>
           ) : null}
@@ -163,11 +200,23 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <Zap className="w-4 h-4" style={{ color: "var(--green)" }} />
             <span className="font-extrabold text-sm tracking-widest text-white">ALPHA</span>
           </div>
+          {/* Mobile: show active wallet balance */}
           <div className="ml-auto flex items-center gap-2">
-            <div className="live-dot" />
-            <span className="text-sm font-bold font-mono" style={{ color: "var(--green)" }}>
-              ${solNum.toFixed(2)}
-            </span>
+            {activeW ? (
+              <>
+                <div className="live-dot" />
+                <span className="text-sm font-bold font-mono text-white">
+                  {balance.toFixed(3)} {ticker}
+                </span>
+                {balUsd !== null && balUsd > 0 && (
+                  <span className="text-xs text-muted-foreground">${balUsd.toFixed(0)}</span>
+                )}
+              </>
+            ) : (
+              <Link href="/wallets">
+                <span className="text-xs text-primary hover:underline">+ Wallet</span>
+              </Link>
+            )}
           </div>
         </header>
 
@@ -189,9 +238,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               const active = location === path;
               return (
                 <Link key={path} href={path}>
-                  <div className={`flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl transition-all ${active ? "text-[var(--green)]" : "text-muted-foreground"}`}>
+                  <div className={`flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-xl transition-all ${active ? "text-[var(--green)]" : "text-muted-foreground"}`}>
                     <Icon className={`w-[18px] h-[18px] ${active ? "drop-shadow-[0_0_4px_rgba(0,225,122,0.6)]" : ""}`} />
-                    <span className={`text-[9.5px] font-semibold tracking-wide ${active ? "" : ""}`}>{label}</span>
+                    <span className="text-[9.5px] font-semibold tracking-wide">{label}</span>
                   </div>
                 </Link>
               );
