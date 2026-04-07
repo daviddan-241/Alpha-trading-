@@ -2,6 +2,7 @@
   "buildCommand": "pnpm install --no-frozen-lockfile && PORT=3000 BASE_PATH=/ NODE_ENV=production pnpm --filter @workspace/trading-web run build",
   "outputDirectory": "artifacts/trading-web/dist",
   "rewrites": [
+    { "source": "/api/(.*)", "destination": "https://alpha-trading-fx3f.onrender.com/api/$1" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

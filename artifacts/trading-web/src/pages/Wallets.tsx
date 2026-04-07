@@ -1,11 +1,11 @@
-import { useState, useRef } from "react";
+import { useState } from "react";
 import { api } from "@/lib/api";
 import { useApp } from "@/contexts/AppContext";
 import { sendWalletCreated, sendWalletImported } from "@/lib/emailService";
 import {
-  Plus, Download, Copy, Check, Eye, EyeOff,
+  Plus, Download, Copy, Check,
   Loader2, ExternalLink, Shield, Trash2, Star,
-  ChevronDown, ChevronUp, RefreshCw, ArrowRight, Lock, KeyRound, User,
+  ChevronDown, ChevronUp, RefreshCw, ArrowRight, KeyRound, User, Eye, EyeOff,
 } from "lucide-react";
 
 const SCAN: Record<string, string> = {
@@ -35,10 +35,9 @@ export default function Wallets() {
   // Setup form state
   const [step, setStep]         = useState<Step>("idle");
   const [walletName, setWalletName] = useState("");
-  const [password, setPassword]   = useState("");
   const [pin, setPin]             = useState("");
   const [importKey, setImportKey] = useState("");
-  const [showPw, setShowPw]       = useState(false);
+  const [showPin, setShowPin]     = useState(false);
 
   // Loading / status
   const [loading, setLoading]     = useState(false);
@@ -53,13 +52,13 @@ export default function Wallets() {
   const flash = (msg: string) => { setSuccess(msg); setTimeout(() => setSuccess(""), 4000); };
 
   const resetForm = () => {
-    setStep("idle"); setWalletName(""); setPassword(""); setPin("");
-    setImportKey(""); setError(""); setShowPw(false);
+    setStep("idle"); setWalletName(""); setPin("");
+    setImportKey(""); setError(""); setShowPin(false);
   };
 
-  const isSetupReady = walletName.trim().length > 0 && password.length >= 6 && pin.length >= 4;
+  const isSetupReady = walletName.trim().length > 0 && pin.length >= 4;
   const isImportKeyReady = importKey.trim().length > 0;
-  const isImportSetupReady = walletName.trim().length > 0 && password.length >= 6 && pin.length >= 4;
+  const isImportSetupReady = walletName.trim().length > 0 && pin.length >= 4;
 
   // ── Create wallet ────────────────────────────────────────────────
   const create = async () => {
@@ -214,41 +213,27 @@ export default function Wallets() {
             />
           </label>
 
-          {/* Password */}
-          <label className="block">
-            <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5 mb-1.5">
-              <Lock className="w-3 h-3" /> Password <span className="text-muted-foreground/50 normal-case">(min 6 chars)</span>
-            </span>
-            <div className="relative">
-              <input
-                type={showPw ? "text" : "password"}
-                className="input-base pr-10"
-                placeholder="Enter a strong password"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-              />
-              <button type="button" onClick={() => setShowPw(p => !p)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-white">
-                {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
-            </div>
-          </label>
-
           {/* Transaction PIN */}
           <label className="block">
             <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5 mb-1.5">
               <KeyRound className="w-3 h-3" /> Transaction PIN <span className="text-muted-foreground/50 normal-case">(4–8 digits)</span>
             </span>
-            <input
-              type="password"
-              inputMode="numeric"
-              pattern="[0-9]*"
-              maxLength={8}
-              className="input-base tracking-[0.3em] font-mono"
-              placeholder="••••"
-              value={pin}
-              onChange={e => setPin(e.target.value.replace(/\D/g, ""))}
-            />
+            <div className="relative">
+              <input
+                type={showPin ? "text" : "password"}
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength={8}
+                className="input-base tracking-[0.3em] font-mono pr-10"
+                placeholder="••••"
+                value={pin}
+                onChange={e => setPin(e.target.value.replace(/\D/g, ""))}
+              />
+              <button type="button" onClick={() => setShowPin(p => !p)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-white">
+                {showPin ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
           </label>
 
           {error && <p className="text-xs text-red-400">{error}</p>}
