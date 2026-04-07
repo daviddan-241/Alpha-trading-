@@ -14,19 +14,16 @@ git add -A
 
 echo "==> Committing..."
 git -c user.email="agent@replit.com" -c user.name="Replit Agent" \
-  commit -m "Fix: stateless wallets+transfer, localStorage, bot chat
+  commit -m "Fix PIN focus bug, remove password field, fix Render & Vercel deploy
 
-- Backend: wallet generate/import/transfer/swap now fully stateless
-  - No in-memory session required (Vercel serverless compatible)
-  - transfer and swap accept privateKey in request body
-  - New GET /wallet/balance/:address endpoint
-- Frontend AppContext: wallets in localStorage (alpha_wallets_v2)
-  - Stores privateKey, refreshes balances from chain
-  - addWallet, removeWallet, setActive, renameWallet
-- Wallets.tsx: AppContext-based CRUD, always shows privateKey
-- Transfer.tsx: passes activeWallet.privateKey to api.transfer
-- Trade.tsx: passes privateKey to api.swap
-- Chat.tsx: full rewrite as Solana trading bot assistant" || echo "Nothing new to commit"
+- Wallets.tsx: inline SetupForm JSX to fix PIN input focus loss on keystroke
+- Wallets.tsx: remove password field — only name + PIN required for wallet setup
+- render.yaml: build frontend before backend so dist/index.html exists on Render
+- vercel.json: proxy /api/* to Render backend so all features work on Vercel
+- PIN input: added show/hide toggle, digit-only validation, 4-digit hint
+- Keepalive: server self-pings /api/healthz every 10 min via RENDER_EXTERNAL_URL
+  (Point UptimeRobot to https://alpha-trading-fx3f.onrender.com/api/healthz)" \
+  || echo "Nothing new to commit"
 
 echo "==> Pushing to main..."
 git push origin HEAD:main
