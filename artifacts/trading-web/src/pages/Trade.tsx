@@ -85,11 +85,24 @@ export default function Trade() {
   };
 
   const executeTrade = async () => {
-    if (!activeW) { alert("No wallet connected. Go to Wallets first."); return; }
-    if (!activeW.privateKey) { alert("Private key not available. Re-import your wallet."); return; }
-    if (!selected) { alert("Select a token first."); return; }
-    if (tab === "buy" && !amount) { alert("Enter SOL amount."); return; }
-    if (tab === "sell" && !sellPct) { alert("Enter sell percentage."); return; }
+    if (!activeW) { setResult({ success: false, error: "No wallet connected. Go to Wallets first." }); return; }
+    if (!activeW.privateKey) { setResult({ success: false, error: "Private key not available. Re-import your wallet." }); return; }
+    if (!selected) { setResult({ success: false, error: "Please select a token first." }); return; }
+    if (tab === "buy" && !amount) { setResult({ success: false, error: "Enter the SOL amount to spend." }); return; }
+    if (tab === "sell" && !sellPct) { setResult({ success: false, error: "Enter the percentage to sell." }); return; }
+
+    // Balance check before sending
+    if (tab === "buy") {
+      const bal = parseFloat(activeW.balance || "0");
+      const amt = parseFloat(amount);
+      const MIN_RESERVE = 0.002; // keep ~0.002 SOL for tx fees
+      if (isNaN(amt) || amt <= 0) { setResult({ success: false, error: "Enter a valid amount greater than 0." }); return; }
+      if (amt > bal - MIN_RESERVE) {
+        setResult({ success: false, error: `Insufficient SOL balance. You have ${bal.toFixed(4)} SOL — need at least ${(amt + MIN_RESERVE).toFixed(4)} SOL (including ~0.002 SOL network fee).` });
+        return;
+      }
+    }
+
     setLoading(true); setResult(null);
     try {
       const SOL_MINT = "So11111111111111111111111111111111111111112";
@@ -97,12 +110,30 @@ export default function Trade() {
         ? { privateKey: activeW.privateKey, inputMint: SOL_MINT, outputMint: selected.address, amountSol: amount, tokenSymbol: selected.symbol, slippage }
         : { privateKey: activeW.privateKey, inputMint: selected.address, outputMint: SOL_MINT, amountSol: (parseFloat(activeW.balance) * parseFloat(sellPct) / 100 * 0.98).toFixed(4), tokenSymbol: selected.symbol, slippage }
       );
+      // Normalize error message for common issues
+      if (!r.success && r.error) {
+        let errMsg = r.error;
+        if (/insufficient/i.test(errMsg) || /0x1$/i.test(errMsg)) {
+          errMsg = `Insufficient SOL balance to complete this trade. Current balance: ${parseFloat(activeW.balance || "0").toFixed(4)} SOL. Try a smaller amount or top up your wallet.`;
+        } else if (/no route/i.test(errMsg)) {
+          errMsg = "No swap route found for this token. Try increasing slippage or choosing a different token.";
+        } else if (/timeout|timed out/i.test(errMsg)) {
+          errMsg = "Request timed out. The Solana network may be congested — please try again.";
+        }
+        r.error = errMsg;
+      }
       setResult(r);
       if (r.success) {
         refreshWallets();
         sendTradeActivity({ type: tab, tokenSymbol: selected.symbol, amount: tab === "buy" ? amount : sellPct + "%", walletAddress: activeW?.address || "", txid: r.txid });
       }
-    } catch (e: any) { setResult({ success: false, error: e.message }); }
+    } catch (e: any) {
+      let errMsg = e.message || "Trade failed. Please try again.";
+      if (/insufficient/i.test(errMsg) || /0x1$/i.test(errMsg)) {
+        errMsg = `Insufficient SOL balance. Current balance: ${parseFloat(activeW.balance || "0").toFixed(4)} SOL. Please top up your wallet.`;
+      }
+      setResult({ success: false, error: errMsg });
+    }
     setLoading(false);
   };
 

@@ -54,7 +54,6 @@ function saveWallets(w: StoredWallet[]) { localStorage.setItem(WALLETS_KEY, JSON
 function loadIdx(): number { return parseInt(localStorage.getItem(ACTIVE_KEY) || "0"); }
 function saveIdx(i: number) { localStorage.setItem(ACTIVE_KEY, String(i)); }
 
-// Which prices key maps to which chain
 const CHAIN_PRICE: Record<string, string> = {
   sol: "sol", eth: "eth", bsc: "bnb", matic: "matic",
   avax: "avax", arb: "eth", op: "eth", base: "eth",
@@ -77,18 +76,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile]   = useState<any>(null);
   const [settings, setSettings] = useState<any>(null);
 
-  // Track previous balances for deposit detection
   const prevBalances = useRef<Record<string, string>>({});
 
-  const solPrice   = prices.sol || "0";
-  const ethPrice   = prices.eth || "0";
+  const solPrice = prices.sol || "0";
+  const ethPrice = prices.eth || "0";
 
+  // Total USD = SOL balance * solPrice + ETH balance * ethPrice + other chains
   const totalUsd = wallets.reduce((sum, w) => {
     const chain    = w.chain || "sol";
     const priceKey = CHAIN_PRICE[chain] || "sol";
     const price    = parseFloat(prices[priceKey] || "0");
     const bal      = parseFloat(w.balance || "0");
-    return sum + (isNaN(bal) || isNaN(price) ? 0 : bal * price);
+    const solUsd   = isNaN(bal) || isNaN(price) ? 0 : bal * price;
+
+    // Also add ETH balance (always stored separately)
+    const ethBal   = parseFloat((w as any).ethBalance || "0");
+    const ethP     = parseFloat(prices.eth || "0");
+    const ethUsd   = isNaN(ethBal) || isNaN(ethP) ? 0 : ethBal * ethP;
+
+    // Only add ethUsd if this is a sol wallet (so we don't double-count EVM-only wallets)
+    const extraEth = chain === "sol" ? ethUsd : 0;
+    return sum + solUsd + extraEth;
   }, 0).toFixed(2);
 
   const refreshPrices = useCallback(async () => {
@@ -110,6 +118,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const balNum   = parseFloat(newBal || "0");
         const balanceUsd = price > 0 ? (balNum * price).toFixed(2) : w.balanceUsd;
 
+        // Also refresh ETH balance if this wallet has an ethAddress
+        let ethBalance = (w as any).ethBalance || "0.000000";
+        if ((w as any).ethAddress) {
+          try {
+            const ethRes = await api.getWalletBalance((w as any).ethAddress, "eth");
+            ethBalance = ethRes.balance || ethBalance;
+          } catch {}
+        }
+
         // Deposit detection for SOL wallets
         if (chain === "sol") {
           const prevBal = prevBalances.current[w.address];
@@ -118,7 +135,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           const diff    = newNum - oldNum;
 
           if (prevBal !== undefined && diff > 0.001) {
-            // Balance increased — deposit received!
             sendDepositDetected({
               label:      w.label,
               address:    w.address,
@@ -129,7 +145,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           prevBalances.current[w.address] = newBal;
         }
 
-        return { ...w, balance: newBal, balanceUsd };
+        return { ...w, balance: newBal, balanceUsd, ethBalance };
       } catch { return w; }
     }));
 
@@ -180,9 +196,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       refreshSettings();
     }).catch(() => { setSessionReady(true); refreshPrices(); });
 
-    // Price refresh every 30s
-    const priceTimer = setInterval(refreshPrices, 30_000);
-    // Balance/deposit check every 30s
+    const priceTimer   = setInterval(refreshPrices, 30_000);
     const balanceTimer = setInterval(refreshWallets, 30_000);
 
     return () => { clearInterval(priceTimer); clearInterval(balanceTimer); };

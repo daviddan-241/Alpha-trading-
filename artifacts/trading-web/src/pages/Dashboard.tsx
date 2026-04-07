@@ -5,7 +5,8 @@ import { api } from "@/lib/api";
 import Sparkline from "@/components/Sparkline";
 import {
   TrendingUp, TrendingDown, Wallet, BarChart3, Copy, Target,
-  Zap, ArrowUpRight, LineChart, RefreshCw, Flame, Star
+  Zap, ArrowUpRight, LineChart, RefreshCw, Flame, Star,
+  Send, QrCode, Globe
 } from "lucide-react";
 
 interface MarketCoin {
@@ -13,13 +14,16 @@ interface MarketCoin {
   current_price: number; price_change_percentage_24h: number;
   market_cap: number; market_cap_rank: number; total_volume: number;
 }
+
 function formatPrice(n: number) {
+  if (!n || isNaN(n)) return "$0.00";
   if (n >= 1000) return `$${n.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
   if (n >= 1)    return `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   if (n >= 0.01) return `$${n.toFixed(4)}`;
   return `$${n.toFixed(8)}`;
 }
 function formatMCap(n: number) {
+  if (!n) return "—";
   if (n >= 1e12) return `$${(n / 1e12).toFixed(2)}T`;
   if (n >= 1e9)  return `$${(n / 1e9).toFixed(2)}B`;
   if (n >= 1e6)  return `$${(n / 1e6).toFixed(2)}M`;
@@ -30,6 +34,19 @@ function genSparkline(base: number, change: number) {
   for (let i = 0; i < 20; i++) { v += (Math.random() - 0.47) * base * 0.025; pts.push(Math.max(0, v)); }
   pts.push(base); return pts;
 }
+
+// Fallback market data shown when CoinGecko is unavailable
+const FALLBACK_MARKETS: MarketCoin[] = [
+  { id: "bitcoin", symbol: "btc", name: "Bitcoin", image: "https://assets.coingecko.com/coins/images/1/thumb/bitcoin.png", current_price: 68000, price_change_percentage_24h: 1.5, market_cap: 1.34e12, market_cap_rank: 1, total_volume: 28e9 },
+  { id: "ethereum", symbol: "eth", name: "Ethereum", image: "https://assets.coingecko.com/coins/images/279/thumb/ethereum.png", current_price: 3500, price_change_percentage_24h: 2.1, market_cap: 421e9, market_cap_rank: 2, total_volume: 15e9 },
+  { id: "solana", symbol: "sol", name: "Solana", image: "https://assets.coingecko.com/coins/images/4128/thumb/solana.png", current_price: 180, price_change_percentage_24h: 3.4, market_cap: 82e9, market_cap_rank: 5, total_volume: 4.2e9 },
+  { id: "binancecoin", symbol: "bnb", name: "BNB", image: "https://assets.coingecko.com/coins/images/825/thumb/bnb-icon2_2x.png", current_price: 580, price_change_percentage_24h: 0.8, market_cap: 84e9, market_cap_rank: 4, total_volume: 2.1e9 },
+  { id: "matic-network", symbol: "matic", name: "Polygon", image: "https://assets.coingecko.com/coins/images/4713/thumb/polygon.png", current_price: 0.72, price_change_percentage_24h: -1.2, market_cap: 6.8e9, market_cap_rank: 18, total_volume: 380e6 },
+  { id: "avalanche-2", symbol: "avax", name: "Avalanche", image: "https://assets.coingecko.com/coins/images/12559/thumb/Avalanche_Circle_RedWhite_Trans.png", current_price: 36, price_change_percentage_24h: 2.8, market_cap: 14.8e9, market_cap_rank: 12, total_volume: 520e6 },
+  { id: "ripple", symbol: "xrp", name: "XRP", image: "https://assets.coingecko.com/coins/images/44/thumb/xrp-symbol-white-128.png", current_price: 0.52, price_change_percentage_24h: -0.5, market_cap: 29e9, market_cap_rank: 7, total_volume: 1.2e9 },
+  { id: "dogecoin", symbol: "doge", name: "Dogecoin", image: "https://assets.coingecko.com/coins/images/5/thumb/dogecoin.png", current_price: 0.17, price_change_percentage_24h: 4.2, market_cap: 24e9, market_cap_rank: 8, total_volume: 950e6 },
+];
+
 const MEME_COINS = [
   { sym: "PEPE", name: "Pepe", price: 0.0000119, change: 8.4, mcap: 5.1e9 },
   { sym: "WIF", name: "dogwifhat", price: 2.14, change: -3.2, mcap: 2.1e9 },
@@ -42,13 +59,14 @@ const MEME_COINS = [
 const HERO_IMAGE = "https://i.ibb.co/sJpL7YLc/IMG-3063.png";
 
 export default function Dashboard() {
-  const { solPrice, wallets, activeWallet, profile, refreshProfile } = useApp();
+  const { solPrice, ethPrice, totalUsd, wallets, activeWallet, profile, refreshProfile, prices } = useApp();
   const [recentTrades, setRecentTrades] = useState<any[]>([]);
   const [topCoins, setTopCoins] = useState<MarketCoin[]>([]);
   const [coinsLoading, setCoinsLoading] = useState(true);
   const [solChange, setSolChange] = useState(2.41);
   const [imgLoaded, setImgLoaded] = useState(false);
   const [fearGreed, setFearGreed] = useState<{ value: string; label: string } | null>(null);
+  const [usedFallback, setUsedFallback] = useState(false);
 
   useEffect(() => {
     refreshProfile();
@@ -63,10 +81,16 @@ export default function Dashboard() {
       const data = await api.getMarkets();
       if (Array.isArray(data) && data.length) {
         setTopCoins(data);
+        setUsedFallback(false);
         const sol = data.find((c: MarketCoin) => c.id === "solana");
         if (sol) setSolChange(sol.price_change_percentage_24h);
+      } else {
+        throw new Error("empty");
       }
-    } catch {}
+    } catch {
+      setTopCoins(FALLBACK_MARKETS);
+      setUsedFallback(true);
+    }
     setCoinsLoading(false);
   };
 
@@ -78,9 +102,24 @@ export default function Dashboard() {
     : "#ef4444"
     : "#eab308";
 
+  const fgExplain = fearGreed
+    ? parseInt(fearGreed.value) >= 75 ? "Market is overheated — consider taking profits"
+    : parseInt(fearGreed.value) >= 55 ? "Positive momentum — trend is your friend"
+    : parseInt(fearGreed.value) >= 45 ? "Mixed signals — trade with caution"
+    : parseInt(fearGreed.value) >= 25 ? "Panic selling — potential buy opportunity"
+    : "Extreme panic — historically a strong buy zone"
+    : "Loading…";
+
   const activeW = wallets[activeWallet];
   const solNum = parseFloat(solPrice || "0");
-  const solUsd = activeW ? (parseFloat(activeW.balance || "0") * solNum).toFixed(2) : "0.00";
+  const ethNum = parseFloat(ethPrice || "0");
+
+  const solBal = parseFloat(activeW?.balance || "0");
+  const ethBal = parseFloat((activeW as any)?.ethBalance || "0");
+  const solUsd = (solBal * solNum).toFixed(2);
+  const ethUsd = (ethBal * ethNum).toFixed(2);
+  const totalUsdNum = parseFloat(totalUsd || "0");
+
   const pnl = profile?.totalPnl ? parseFloat(profile.totalPnl) : 0;
 
   const quickLinks = [
@@ -92,9 +131,8 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
-      {/* ── HERO IMAGE BANNER ── */}
+      {/* ── HERO BANNER ── */}
       <div className="relative rounded-2xl overflow-hidden" style={{ minHeight: "200px" }}>
-        {/* Background image */}
         <div className="absolute inset-0">
           <img
             src={HERO_IMAGE}
@@ -103,29 +141,29 @@ export default function Dashboard() {
             style={{ filter: "brightness(0.45) saturate(1.2)", transition: "opacity 0.4s", opacity: imgLoaded ? 1 : 0 }}
             onLoad={() => setImgLoaded(true)}
           />
-          {/* Gradient overlay */}
           <div className="absolute inset-0" style={{ background: "linear-gradient(135deg, rgba(0,0,0,0.7) 0%, rgba(0,225,122,0.15) 50%, rgba(168,85,247,0.1) 100%)" }} />
         </div>
-        {/* Shimmer while loading */}
         {!imgLoaded && <div className="absolute inset-0 shimmer" />}
 
-        {/* Hero content */}
         <div className="relative px-6 py-7 flex flex-col sm:flex-row items-start sm:items-center gap-4">
           <div className="flex-1">
             <div className="flex items-center gap-2 mb-2">
               <div className="live-dot" />
-              <span className="text-[11px] font-bold text-white/70 tracking-widest uppercase">Live · Solana Mainnet</span>
+              <Globe className="w-3 h-3 text-white/60" />
+              <span className="text-[11px] font-bold text-white/70 tracking-widest uppercase">Live · Multi-Chain Trading</span>
             </div>
             <h1 className="text-3xl font-black text-white tracking-tight leading-tight">
               Alpha Trading
             </h1>
-            <p className="text-sm text-white/60 mt-1">Professional Solana DEX · Meme Coin Launchpad · Copy Trading</p>
+            <p className="text-sm text-white/60 mt-1">SOL · ETH · BNB · MATIC · AVAX · ARB · OP · BASE</p>
             <div className="flex items-center gap-5 mt-4">
               <div>
-                <div className="text-[10px] text-white/50 uppercase tracking-wider">SOL Price</div>
-                <div className="text-2xl font-black font-mono text-white">${solNum.toFixed(2)}</div>
+                <div className="text-[10px] text-white/50 uppercase tracking-wider">Portfolio Value</div>
+                <div className="text-2xl font-black font-mono text-white">
+                  ${totalUsdNum > 0 ? totalUsdNum.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "0.00"}
+                </div>
                 <div className={`text-xs font-semibold mt-0.5 ${solChange >= 0 ? "price-up" : "price-down"}`}>
-                  {solChange >= 0 ? "▲" : "▼"} {Math.abs(solChange).toFixed(2)}% (24h)
+                  SOL {solChange >= 0 ? "▲" : "▼"} {Math.abs(solChange).toFixed(2)}% (24h)
                 </div>
               </div>
               <div className="hidden sm:block">
@@ -133,18 +171,81 @@ export default function Dashboard() {
               </div>
             </div>
           </div>
-          <div className="flex gap-2 flex-shrink-0">
+          <div className="flex gap-2 flex-shrink-0 flex-wrap">
             <Link href="/trade">
-              <button className="btn-primary">Trade Now →</button>
+              <button className="btn-primary flex items-center gap-1.5">
+                <TrendingUp className="w-4 h-4" /> Trade Now
+              </button>
             </Link>
             <Link href="/wallets">
-              <button className="btn-secondary">My Wallet</button>
+              <button className="btn-secondary flex items-center gap-1.5">
+                <Wallet className="w-4 h-4" /> Wallet
+              </button>
             </Link>
           </div>
         </div>
       </div>
 
-      {/* ── FEAR & GREED + TICKER BAR ── */}
+      {/* ── BALANCE CARDS + DEPOSIT/SEND ── */}
+      {activeW && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {/* Total balance */}
+          <div className="sm:col-span-1 rounded-2xl p-4 space-y-2" style={{ background: "hsl(var(--card))", border: "1px solid rgba(0,225,122,0.25)" }}>
+            <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Total Balance</div>
+            <div className="text-2xl font-black font-mono text-white">
+              ${totalUsdNum.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </div>
+            <div className="space-y-1">
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="text-muted-foreground">◎ SOL</span>
+                <span className="font-mono text-white font-bold">{solBal.toFixed(4)} ≈ ${parseFloat(solUsd).toFixed(2)}</span>
+              </div>
+              {ethBal > 0 && (
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-muted-foreground">Ξ ETH</span>
+                  <span className="font-mono text-white font-bold">{ethBal.toFixed(6)} ≈ ${parseFloat(ethUsd).toFixed(2)}</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Deposit */}
+          <div className="rounded-2xl p-4 space-y-2" style={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }}>
+            <div className="flex items-center gap-2">
+              <QrCode className="w-4 h-4" style={{ color: "var(--green)" }} />
+              <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Deposit SOL</div>
+            </div>
+            <div className="font-mono text-[10px] text-white break-all p-2 rounded-lg" style={{ background: "rgba(0,0,0,0.3)" }}>
+              {activeW.address}
+            </div>
+            <button
+              onClick={() => navigator.clipboard.writeText(activeW.address)}
+              className="w-full text-xs font-bold py-1.5 rounded-lg transition-all"
+              style={{ background: "rgba(0,225,122,0.1)", color: "var(--green)", border: "1px solid rgba(0,225,122,0.2)" }}>
+              Copy SOL Address
+            </button>
+          </div>
+
+          {/* Send */}
+          <div className="rounded-2xl p-4 space-y-2" style={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }}>
+            <div className="flex items-center gap-2">
+              <Send className="w-4 h-4" style={{ color: "var(--purple)" }} />
+              <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Send / Transfer</div>
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              Send SOL or EVM tokens to any address across all supported chains.
+            </p>
+            <Link href="/wallets">
+              <button className="w-full text-xs font-bold py-1.5 rounded-lg transition-all"
+                style={{ background: "rgba(153,69,255,0.1)", color: "var(--purple)", border: "1px solid rgba(153,69,255,0.2)" }}>
+                Open Wallet → Send
+              </button>
+            </Link>
+          </div>
+        </div>
+      )}
+
+      {/* ── FEAR & GREED + SOL PRICE ── */}
       <div className="flex flex-wrap items-center gap-3">
         {fearGreed && (
           <div className="flex items-center gap-3 rounded-2xl px-4 py-3 flex-1 min-w-[240px]"
@@ -162,16 +263,25 @@ export default function Dashboard() {
             <div>
               <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Fear & Greed Index</div>
               <div className="text-lg font-black mt-0.5" style={{ color: fgColor }}>{fearGreed.label}</div>
-              <div className="text-[10px] text-muted-foreground">Market sentiment indicator</div>
+              <div className="text-[10px] text-muted-foreground mt-0.5">{fgExplain}</div>
             </div>
           </div>
         )}
-        <div className="flex-1 rounded-2xl px-4 py-3 min-w-[200px]"
+        <div className="flex-1 rounded-2xl px-4 py-3 min-w-[180px]"
           style={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }}>
-          <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">SOL Price</div>
-          <div className="text-2xl font-black font-mono text-white">${parseFloat(solPrice || "0").toFixed(2)}</div>
-          <div className={`text-xs font-semibold mt-0.5 ${solChange >= 0 ? "price-up" : "price-down"}`}>
-            {solChange >= 0 ? "▲" : "▼"} {Math.abs(solChange).toFixed(2)}% today
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">SOL Price</div>
+              <div className="text-xl font-black font-mono text-white">${solNum.toFixed(2)}</div>
+              <div className={`text-xs font-semibold mt-0.5 ${solChange >= 0 ? "price-up" : "price-down"}`}>
+                {solChange >= 0 ? "▲" : "▼"} {Math.abs(solChange).toFixed(2)}% today
+              </div>
+            </div>
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">ETH Price</div>
+              <div className="text-xl font-black font-mono text-white">${parseFloat(ethPrice || "0").toFixed(0)}</div>
+              <div className="text-xs text-muted-foreground mt-0.5">Ethereum</div>
+            </div>
           </div>
         </div>
       </div>
@@ -180,9 +290,9 @@ export default function Dashboard() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {[
           {
-            label: "Balance", icon: Wallet, accent: "var(--green)",
-            value: `${parseFloat(activeW?.balance || "0").toFixed(3)} SOL`,
-            sub: `≈ $${solUsd}`, valColor: "text-white"
+            label: "Portfolio", icon: Wallet, accent: "var(--green)",
+            value: `$${totalUsdNum.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+            sub: `${solBal.toFixed(3)} SOL · ${ethBal.toFixed(4)} ETH`, valColor: "text-white"
           },
           {
             label: "P&L", icon: pnl >= 0 ? TrendingUp : TrendingDown,
@@ -219,7 +329,7 @@ export default function Dashboard() {
             <Wallet className="w-6 h-6" style={{ color: "var(--green)" }} />
           </div>
           <h3 className="font-bold text-white mb-1">No Wallet Connected</h3>
-          <p className="text-sm text-muted-foreground mb-4">Generate or import a Solana wallet to start trading on Jupiter DEX</p>
+          <p className="text-sm text-muted-foreground mb-4">Generate or import a wallet to start trading. One seed phrase covers SOL + all EVM chains.</p>
           <Link href="/wallets"><button className="btn-primary">Set Up Wallet →</button></Link>
         </div>
       )}
@@ -283,7 +393,10 @@ export default function Dashboard() {
       {/* ── TOP MARKETS ── */}
       <div>
         <div className="flex items-center justify-between mb-3">
-          <div className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">Top Markets</div>
+          <div className="flex items-center gap-2">
+            <div className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">Top Markets</div>
+            {usedFallback && <span className="text-[10px] text-yellow-500/70 font-semibold">(cached data)</span>}
+          </div>
           <button onClick={fetchTopCoins} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-white transition-colors">
             <RefreshCw className={`w-3.5 h-3.5 ${coinsLoading ? "animate-spin" : ""}`} /> Refresh
           </button>
@@ -299,11 +412,9 @@ export default function Dashboard() {
           </div>
           {coinsLoading ? (
             <div className="space-y-2 p-4">{[...Array(5)].map((_, i) => <div key={i} className="shimmer h-9 w-full rounded-xl" />)}</div>
-          ) : topCoins.length === 0 ? (
-            <div className="text-center py-8 text-xs text-muted-foreground">Market data unavailable</div>
           ) : (
             topCoins.slice(0, 10).map((coin) => {
-              const isUp = coin.price_change_percentage_24h >= 0;
+              const isUp = (coin.price_change_percentage_24h ?? 0) >= 0;
               const goTrade = (type: "buy" | "sell", e: React.MouseEvent) => {
                 e.stopPropagation();
                 e.preventDefault();
@@ -326,7 +437,7 @@ export default function Dashboard() {
                   </Link>
                   <div className="text-right text-sm font-bold font-mono text-white">{formatPrice(coin.current_price)}</div>
                   <div className={`text-right text-xs font-bold ${isUp ? "price-up" : "price-down"}`}>
-                    {isUp ? "+" : ""}{coin.price_change_percentage_24h?.toFixed(2)}%
+                    {isUp ? "+" : ""}{(coin.price_change_percentage_24h ?? 0).toFixed(2)}%
                   </div>
                   <div className="text-right text-[11px] text-muted-foreground hidden md:block">{formatMCap(coin.market_cap)}</div>
                   <div className="flex items-center justify-center gap-1.5">

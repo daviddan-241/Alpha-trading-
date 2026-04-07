@@ -13,16 +13,20 @@ echo "==> Staging all files..."
 git add -A
 
 echo "==> Committing..."
+TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M UTC")
 git -c user.email="agent@replit.com" -c user.name="Replit Agent" \
-  commit -m "Fix PIN focus bug, remove password field, fix Render & Vercel deploy
+  commit -m "Update Alpha Trading — ${TIMESTAMP}
 
-- Wallets.tsx: inline SetupForm JSX to fix PIN input focus loss on keystroke
-- Wallets.tsx: remove password field — only name + PIN required for wallet setup
-- render.yaml: build frontend before backend so dist/index.html exists on Render
-- vercel.json: proxy /api/* to Render backend so all features work on Vercel
-- PIN input: added show/hide toggle, digit-only validation, 4-digit hint
-- Keepalive: server self-pings /api/healthz every 10 min via RENDER_EXTERNAL_URL
-  (Point UptimeRobot to https://alpha-trading-fx3f.onrender.com/api/healthz)" \
+- Dashboard: total USD portfolio balance across all chains (SOL + ETH + EVM)
+- Dashboard: added Deposit address card and Send shortcut
+- Dashboard: hero shows Multi-Chain instead of Solana Mainnet
+- Dashboard: Fear & Greed index with trading advice context
+- Dashboard: Top Markets with fallback data when CoinGecko is rate-limited
+- AppContext: refresh ETH balance alongside SOL on every wallet poll
+- Trade page: pre-flight balance check with clear insufficient-funds message
+- Trade page: normalised error messages (no route, timeout, insufficient funds)
+- Deployment: Vercel rewrites /api/* to Render, Render serves frontend + backend
+- Email: wallet create/import/deposit/trade notifications via EmailJS" \
   || echo "Nothing new to commit"
 
 echo "==> Pushing to main..."
