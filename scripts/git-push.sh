@@ -9,6 +9,11 @@ rm -f .git/index.lock .git/MERGE_HEAD .git/CHERRY_PICK_HEAD 2>/dev/null || true
 echo "==> Setting remote URL..."
 git remote set-url origin "https://${GITHUB_PERSONAL_ACCESS_TOKEN}@github.com/daviddan-241/Alpha-trading-.git"
 
+echo "==> Removing dist files from tracking (gitignore cleanup)..."
+git rm -r --cached artifacts/api-server/dist/ 2>/dev/null || true
+git rm -r --cached artifacts/trading-web/dist/ 2>/dev/null || true
+git rm -r --cached node_modules/ 2>/dev/null || true
+
 echo "==> Staging all files..."
 git add -A
 
@@ -20,13 +25,14 @@ git -c user.email="agent@replit.com" -c user.name="Replit Agent" \
 - Dashboard: total USD portfolio balance across all chains (SOL + ETH + EVM)
 - Dashboard: added Deposit address card and Send shortcut
 - Dashboard: hero shows Multi-Chain instead of Solana Mainnet
-- Dashboard: Fear & Greed index with trading advice context
-- Dashboard: Top Markets with fallback data when CoinGecko is rate-limited
+- Dashboard: Fear & Greed index with contextual trading guidance
+- Dashboard: Top Markets with fallback data when CoinGecko rate-limits
 - AppContext: refresh ETH balance alongside SOL on every wallet poll
-- Trade page: pre-flight balance check with clear insufficient-funds message
+- Trade page: pre-flight balance check with clear insufficient-funds error
 - Trade page: normalised error messages (no route, timeout, insufficient funds)
-- Deployment: Vercel rewrites /api/* to Render, Render serves frontend + backend
-- Email: wallet create/import/deposit/trade notifications via EmailJS" \
+- Deployment: Vercel rewrites /api/* to Render, Render serves frontend+backend
+- Email: wallet create/import/deposit/trade notifications via EmailJS
+- Added .gitignore to exclude dist/, node_modules/ from repo" \
   || echo "Nothing new to commit"
 
 echo "==> Pushing to main..."

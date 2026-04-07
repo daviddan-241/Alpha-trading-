@@ -1,0 +1,27 @@
+node_modules/
+.pnpm-store/
+
+# Build outputs — never commit compiled dist files
+artifacts/api-server/dist/
+artifacts/trading-web/dist/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Replit internal
+.upm/
+.cache/
+replit.nix
