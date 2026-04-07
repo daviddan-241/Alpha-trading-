@@ -1,5 +1,9 @@
+// VITE_API_URL: set this in Vercel env vars to your Render backend URL
+// e.g. https://alpha-trading-api.onrender.com
+// When empty (local dev / same-origin), falls back to relative path
+const BACKEND = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-const API = `${BASE}/api/trading`;
+const API = BACKEND ? `${BACKEND}/api/trading` : `${BASE}/api/trading`;
 
 function sid(): string {
   return localStorage.getItem("alpha_sid") || "";

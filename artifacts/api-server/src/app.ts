@@ -61,10 +61,12 @@ if (isDev) {
   });
 } else {
   // In production: serve pre-built static files
-  const staticDir = path.resolve(__dirname, "../../trading-web/dist/public");
+  // outDir is now artifacts/trading-web/dist (no /public subfolder)
+  const staticDir = path.resolve(__dirname, "../../trading-web/dist");
   if (fs.existsSync(staticDir)) {
     app.use(express.static(staticDir));
-    app.get("*", (_req: Request, res: Response) => {
+    // Express 5 requires named wildcard — bare "*" is not allowed
+    app.get("/{*splat}", (_req: Request, res: Response) => {
       res.sendFile(path.join(staticDir, "index.html"));
     });
   }

@@ -1,0 +1,44 @@
+Running 'node artifacts/api-server/dist/index.mjs'
+file:///opt/render/project/src/artifacts/api-server/dist/index.mjs:19934
+          throw new PathError(`Missing parameter name at index ${index}`, str);
+                ^
+PathError [TypeError]: Missing parameter name at index 1: *; visit https://git.new/pathToRegexpError for info
+    at name (file:///opt/render/project/src/artifacts/api-server/dist/index.mjs:19934:17)
+    at parse2 (file:///opt/render/project/src/artifacts/api-server/dist/index.mjs:19948:66)
+    at pathToRegexp (file:///opt/render/project/src/artifacts/api-server/dist/index.mjs:20090:59)
+    at Object.match (file:///opt/render/project/src/artifacts/api-server/dist/index.mjs:20060:32)
+    at matcher (file:///opt/render/project/src/artifacts/api-server/dist/index.mjs:20262:27)
+    at new Layer (file:///opt/render/project/src/artifacts/api-server/dist/index.mjs:20269:68)
+    at Function.route (file:///opt/render/project/src/artifacts/api-server/dist/index.mjs:20694:21)
+    at Function.route (file:///opt/render/project/src/artifacts/api-server/dist/index.mjs:21003:26)
+    at app2.<computed> [as get] (file:///opt/render/project/src/artifacts/api-server/dist/index.mjs:21066:26)
+    at file:///opt/render/project/src/artifacts/api-server/dist/index.mjs:169079:9
+    at ModuleJob.run (node:internal/modules/esm/module_job:343:25)
+    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:665:26)
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5) {
+  originalPath: '*'
+}
+Node.js v22.22.0
+==> Exited with status 1
+==> Common ways to troubleshoot your deploy: https://render.com/docs/troubleshooting-deploys
+==> Running 'node artifacts/api-server/dist/index.mjs'
+file:///opt/render/project/src/artifacts/api-server/dist/index.mjs:19934
+          throw new PathError(`Missing parameter name at index ${index}`, str);
+                ^
+PathError [TypeError]: Missing parameter name at index 1: *; visit https://git.new/pathToRegexpError for info
+    at name (file:///opt/render/project/src/artifacts/api-server/dist/index.mjs:19934:17)
+    at parse2 (file:///opt/render/project/src/artifacts/api-server/dist/index.mjs:19948:66)
+    at pathToRegexp (file:///opt/render/project/src/artifacts/api-server/dist/index.mjs:20090:59)
+    at Object.match (file:///opt/render/project/src/artifacts/api-server/dist/index.mjs:20060:32)
+    at matcher (file:///opt/render/project/src/artifacts/api-server/dist/index.mjs:20262:27)
+    at new Layer (file:///opt/render/project/src/artifacts/api-server/dist/index.mjs:20269:68)
+    at Function.route (file:///opt/render/project/src/artifacts/api-server/dist/index.mjs:20694:21)
+    at Function.route (file:///opt/render/project/src/artifacts/api-server/dist/index.mjs:21003:26)
+    at app2.<computed> [as get] (file:///opt/render/project/src/artifacts/api-server/dist/index.mjs:21066:26)
+    at file:///opt/render/project/src/artifacts/api-server/dist/index.mjs:169079:9
+    at ModuleJob.run (node:internal/modules/esm/module_job:343:25)
+    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:665:26)
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5) {
+  originalPath: '*'
+}
+Node.js v22.22.0
