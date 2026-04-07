@@ -1,0 +1,21 @@
+Running 'node artifacts/api-server/dist/index.mjs'
+Menu
+(node:68) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+{"level":30,"time":1775552806187,"pid":68,"hostname":"srv-d7ac61qdbo4c73a3tagg-hibernate-fc8cf6fc6-wkbpb","port":10000,"msg":"Server listening"}
+{"level":50,"time":1775552806586,"pid":68,"hostname":"srv-d7ac61qdbo4c73a3tagg-hibernate-fc8cf6fc6-wkbpb","e":{"code":"ETELEGRAM","message":"ETELEGRAM: 401 Unauthorized"},"msg":"Failed to set webhook"}
+{"level":30,"time":1775552806587,"pid":68,"hostname":"srv-d7ac61qdbo4c73a3tagg-hibernate-fc8cf6fc6-wkbpb","msg":"ALPHA TRADING BOT started (webhook mode)"}
+{"level":30,"time":1775552806590,"pid":68,"hostname":"srv-d7ac61qdbo4c73a3tagg-hibernate-fc8cf6fc6-wkbpb","pingUrl":"https://alpha-trading-fx3f.onrender.com/api/healthz","msg":"Keepalive ping scheduled every 10 minutes"}
+{"level":30,"time":1775552806689,"pid":68,"hostname":"srv-d7ac61qdbo4c73a3tagg-hibernate-fc8cf6fc6-wkbpb","req":{"id":1,"method":"HEAD","url":"/"},"res":{"statusCode":404},"responseTime":95,"msg":"request completed"}
+Error: ENOENT: no such file or directory, stat '/opt/render/project/src/artifacts/trading-web/dist/index.html'
+==> Your service is live 🎉
+==> 
+==> ///////////////////////////////////////////////////////////
+==> 
+==> Available at your primary URL https://alpha-trading-fx3f.onrender.com
+==> 
+==> ///////////////////////////////////////////////////////////
+{"level":30,"time":1775552811845,"pid":68,"hostname":"srv-d7ac61qdbo4c73a3tagg-hibernate-fc8cf6fc6-wkbpb","req":{"id":2,"method":"GET","url":"/"},"res":{"statusCode":404},"responseTime":1,"msg":"request completed"}
+Error: ENOENT: no such file or directory, stat '/opt/render/project/src/artifacts/trading-web/dist/index.html'
+{"level":30,"time":1775552868477,"pid":68,"hostname":"srv-d7ac61qdbo4c73a3tagg-hibernate-fc8cf6fc6-wkbpb","req":{"id":3,"method":"HEAD","url":"/"},"res":{"statusCode":404},"responseTime":1,"msg":"request completed"}
+Error: ENOENT: no such file or directory, stat '/opt/render/project/src/artifacts/trading-web/dist/index.html'
