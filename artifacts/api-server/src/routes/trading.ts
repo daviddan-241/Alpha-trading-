@@ -287,40 +287,43 @@ router.get("/wallet/list", async (req, res) => {
   res.json({ wallets: [], activeWallet: 0 });
 });
 
+// Always generates a true multi-chain wallet: one seed phrase → SOL + all EVM chains
 router.post("/wallet/generate", async (req, res) => {
   try {
     const count = Math.min(parseInt(req.body.count || "1"), 5);
-    const chain = (req.body.chain || "sol").toLowerCase();
     const newWallets = [];
 
     for (let i = 0; i < count; i++) {
-      if (chain === "sol") {
-        const kp = generateKeypair();
-        const seedPhrase = bip39.generateMnemonic();
-        newWallets.push({
-          address: kp.address,
-          privateKey: kp.privateKey,
-          seedPhrase,
-          label: `Wallet ${i + 1}`,
-          balance: "0.0000",
-          chain: "sol",
-        });
-      } else if (isEvmChain(chain)) {
-        const w = generateEthWallet(i);
-        const nativeTicker = CHAIN_NATIVE[chain] || "ETH";
-        newWallets.push({
-          address: w.address,
-          privateKey: w.privateKey,
-          seedPhrase: w.mnemonic,
-          label: `${chain.toUpperCase()} Wallet ${i + 1}`,
-          balance: "0.000000",
-          chain,
-          nativeTicker,
-        });
-      } else {
-        res.status(400).json({ error: `Unsupported chain: ${chain}` });
-        return;
-      }
+      // Generate 24-word seed (256-bit entropy — same as Trust Wallet)
+      const seedPhrase = bip39.generateMnemonic(256);
+
+      // Derive SOL keypair (BIP44 m/44'/501'/0'/0')
+      const solKp = await keypairFromMnemonic(seedPhrase, 0);
+      const solAddress    = solKp.publicKey.toBase58();
+      const solPrivateKey = bs58.encode(solKp.secretKey);
+
+      // Derive EVM wallet (BIP44 m/44'/60'/0'/0/0) — same address for ETH/BNB/MATIC/AVAX/ARB/OP/BASE
+      const evmW = ethWalletFromMnemonic(seedPhrase, 0);
+
+      // Fetch balances concurrently (0 on new wallets, but real for restored)
+      const [solBal, evmBal] = await Promise.all([
+        getSolBalance(solAddress),
+        getEvmBalance(evmW.address, "eth"),
+      ]);
+
+      newWallets.push({
+        label:        `My Wallet ${i + 1}`,
+        seedPhrase,
+        // Solana
+        address:      solAddress,
+        privateKey:   solPrivateKey,
+        balance:      solBal,
+        chain:        "sol",
+        // EVM (ETH / BNB / MATIC / AVAX / ARB / OP / BASE — same address)
+        ethAddress:   evmW.address,
+        ethPrivateKey:evmW.privateKey,
+        ethBalance:   evmBal,
+      });
     }
     res.json({ wallets: newWallets });
   } catch (e) {
@@ -329,43 +332,72 @@ router.post("/wallet/generate", async (req, res) => {
   }
 });
 
+// Import is multi-chain aware:
+//   seed phrase  → derives SOL + all EVM chains (both returned)
+//   SOL base58 key  → SOL only
+//   EVM 0x key      → EVM only (works for ETH/BNB/MATIC/AVAX/ARB/OP/BASE)
 router.post("/wallet/import", async (req, res) => {
-  const { key, chain: rawChain } = req.body;
+  const { key } = req.body;
   if (!key) { res.status(400).json({ error: "Key required" }); return; }
-  const chain = (rawChain || "sol").toLowerCase();
+  const trimmed = key.trim();
 
   try {
-    if (isEvmChain(chain)) {
-      let address: string;
-      let privateKey: string;
-      const trimmed = key.trim();
-      if (trimmed.split(" ").length >= 12) {
-        const w = ethWalletFromMnemonic(trimmed);
-        address = w.address; privateKey = w.privateKey;
-      } else {
-        const w = ethWalletFromPrivateKey(trimmed);
-        address = w.address; privateKey = w.privateKey;
-      }
-      const balance = await getEvmBalance(address, chain);
-      const nativeTicker = CHAIN_NATIVE[chain] || "ETH";
-      res.json({ address, label: `Imported ${chain.toUpperCase()} Wallet`, balance, privateKey, chain, nativeTicker });
+    const wordCount = trimmed.split(/\s+/).length;
+    const isMnemonic = wordCount === 12 || wordCount === 24;
+    const isEvmKey   = trimmed.startsWith("0x") && trimmed.length === 66;
+    const isSolKey   = !isEvmKey && !isMnemonic;
+
+    if (isMnemonic) {
+      // Full multi-chain restore — exactly like Trust Wallet
+      const [solKp, evmW] = await Promise.all([
+        keypairFromMnemonic(trimmed, 0),
+        Promise.resolve(ethWalletFromMnemonic(trimmed, 0)),
+      ]);
+      const solAddress    = solKp.publicKey.toBase58();
+      const solPrivateKey = bs58.encode(solKp.secretKey);
+      const [solBal, evmBal] = await Promise.all([
+        getSolBalance(solAddress),
+        getEvmBalance(evmW.address, "eth"),
+      ]);
+      res.json({
+        label:         "Imported Wallet",
+        seedPhrase:    trimmed,
+        address:       solAddress,
+        privateKey:    solPrivateKey,
+        balance:       solBal,
+        chain:         "sol",
+        ethAddress:    evmW.address,
+        ethPrivateKey: evmW.privateKey,
+        ethBalance:    evmBal,
+      });
+    } else if (isEvmKey) {
+      const evmW   = ethWalletFromPrivateKey(trimmed);
+      const evmBal = await getEvmBalance(evmW.address, "eth");
+      res.json({
+        label:         "Imported EVM Wallet",
+        address:       evmW.address,
+        privateKey:    evmW.privateKey,
+        balance:       evmBal,
+        chain:         "eth",
+        ethAddress:    evmW.address,
+        ethPrivateKey: evmW.privateKey,
+        ethBalance:    evmBal,
+      });
+    } else if (isSolKey) {
+      // SOL private key (base58)
+      const secretKey = bs58.decode(trimmed);
+      const kp = Keypair.fromSecretKey(secretKey);
+      const solAddress = kp.publicKey.toBase58();
+      const solBal = await getSolBalance(solAddress);
+      res.json({
+        label:      "Imported SOL Wallet",
+        address:    solAddress,
+        privateKey: trimmed,
+        balance:    solBal,
+        chain:      "sol",
+      });
     } else {
-      // Solana
-      let address: string;
-      let privateKey: string;
-      if (isValidMnemonic(key)) {
-        const kp = await keypairFromMnemonic(key.trim());
-        address = kp.publicKey.toBase58();
-        privateKey = bs58.encode(kp.secretKey);
-      } else {
-        const secretKey = bs58.decode(key.trim());
-        const { Keypair: KP } = await import("@solana/web3.js");
-        const kp = KP.fromSecretKey(secretKey);
-        address = kp.publicKey.toBase58();
-        privateKey = key.trim();
-      }
-      const balance = await getSolBalance(address);
-      res.json({ address, label: "Imported SOL Wallet", balance, privateKey, chain: "sol" });
+      res.status(400).json({ error: "Invalid key or seed phrase" });
     }
   } catch {
     res.status(400).json({ error: "Invalid private key or seed phrase" });

