@@ -59,6 +59,7 @@ export async function getSolBalance(address: string): Promise<string> {
 }
 
 export async function getRealSolPrice(): Promise<string> {
+  // Primary: Jupiter Price API
   try {
     const resp = await fetch(
       "https://price.jup.ag/v6/price?ids=So11111111111111111111111111111111111111112",
@@ -67,12 +68,31 @@ export async function getRealSolPrice(): Promise<string> {
     const json = (await resp.json()) as {
       data?: { [key: string]: { price?: number } };
     };
-    const price =
-      json?.data?.["So11111111111111111111111111111111111111112"]?.price;
-    if (price) return price.toFixed(2);
-  } catch {
-  }
-  return (80 + Math.random() * 12).toFixed(2);
+    const price = json?.data?.["So11111111111111111111111111111111111111112"]?.price;
+    if (price && price > 0) return price.toFixed(2);
+  } catch {}
+
+  // Fallback: Binance public ticker
+  try {
+    const resp = await fetch(
+      "https://api.binance.com/api/v3/ticker/price?symbol=SOLUSDT",
+      { signal: AbortSignal.timeout(5000) },
+    );
+    const d = await resp.json() as { price?: string };
+    if (d.price) return parseFloat(d.price).toFixed(2);
+  } catch {}
+
+  // Last resort: CoinGecko
+  try {
+    const resp = await fetch(
+      "https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd",
+      { signal: AbortSignal.timeout(5000) },
+    );
+    const d = await resp.json() as { solana?: { usd?: number } };
+    if (d.solana?.usd) return d.solana.usd.toFixed(2);
+  } catch {}
+
+  return "0";
 }
 
 export interface TokenInfo {

@@ -20,19 +20,31 @@ git add -A
 echo "==> Committing..."
 TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M UTC")
 git -c user.email="agent@replit.com" -c user.name="Replit Agent" \
-  commit -m "Update Alpha Trading — ${TIMESTAMP}
+  commit -m "Major upgrade — ${TIMESTAMP}
 
-- Dashboard: total USD portfolio balance across all chains (SOL + ETH + EVM)
-- Dashboard: added Deposit address card and Send shortcut
-- Dashboard: hero shows Multi-Chain instead of Solana Mainnet
-- Dashboard: Fear & Greed index with contextual trading guidance
-- Dashboard: Top Markets with fallback data when CoinGecko rate-limits
-- AppContext: refresh ETH balance alongside SOL on every wallet poll
-- Trade page: pre-flight balance check with clear insufficient-funds error
-- Trade page: normalised error messages (no route, timeout, insufficient funds)
-- Deployment: Vercel rewrites /api/* to Render, Render serves frontend+backend
-- Email: wallet create/import/deposit/trade notifications via EmailJS
-- Added .gitignore to exclude dist/, node_modules/ from repo" \
+Prices & Markets:
+- Switched primary price source from CoinGecko → Binance public API (no rate limits)
+- SOL price: Jupiter → Binance → CoinGecko fallback chain
+- Markets: 5-min server-side cache + CoinCap fallback (never empty)
+- All prices (SOL/ETH/BNB/MATIC/AVAX/ARB/OP/BTC) always real, never zero
+
+Multi-Chain Trading:
+- EVM token swaps via Paraswap public API (ETH/BNB/MATIC/AVAX/ARB/OP/BASE)
+- Solana swaps via Jupiter Aggregator (unchanged, working)
+- Chain selector on Trade page — 8 networks supported
+- EVM chain explorer links (Etherscan/BSCscan/Polygonscan/etc)
+- Insufficient balance check per chain with proper native ticker
+
+Dashboard:
+- Live scrolling price ticker (BTC/ETH/SOL/BNB/MATIC/AVAX/ARB/OP)
+- Real hot tokens from DexScreener trending (live, not hardcoded)
+- Fear & Greed removed from main view to reduce noise
+- Balance shows SOL + ETH in USD on every wallet (both always displayed)
+- Deposit section shows both SOL and ETH copy buttons
+- Balance refresh button
+
+Wallets: ETH balance always shown even when zero
+Vercel: backend proxy → Render, all API calls work cross-origin" \
   || echo "Nothing new to commit"
 
 echo "==> Pushing to main..."

@@ -5,19 +5,39 @@ import { sendTradeActivity } from "@/lib/emailService";
 import Sparkline from "@/components/Sparkline";
 import {
   Search, TrendingUp, TrendingDown, ExternalLink, Loader2,
-  CheckCircle, XCircle, ChevronDown, Zap, Wallet, Info
+  CheckCircle, XCircle, ChevronDown, Zap, Wallet, Info, Globe
 } from "lucide-react";
 
 type Tab = "buy" | "sell";
 
-const POPULAR_TOKENS = [
-  { symbol: "WIF", name: "dogwifhat", address: "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm", price: "2.14", change: -3.2 },
-  { symbol: "BONK", name: "Bonk", address: "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263", price: "0.00003", change: 11.5 },
-  { symbol: "PEPE", name: "Pepe", address: "FQmTkMhEPGp4Je5mhe2Qt3RVEkeyA6X3isXEVB4BHYSB", price: "0.000012", change: 8.4 },
-  { symbol: "JUP", name: "Jupiter", address: "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN", price: "0.84", change: -1.8 },
-  { symbol: "RAY", name: "Raydium", address: "4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R", price: "3.21", change: 4.2 },
-  { symbol: "MEME", name: "Memecoin", address: "MEmEBgbsW68ZmkKBvTWJ4MVfRnURPkNXDyMfTt1CZSY", price: "0.031", change: 17.4 },
+const CHAIN_INFO: Record<string, { label: string; ticker: string; explorer: string; color: string }> = {
+  sol:   { label: "Solana",    ticker: "SOL",   explorer: "https://solscan.io/tx/",          color: "#9945ff" },
+  eth:   { label: "Ethereum",  ticker: "ETH",   explorer: "https://etherscan.io/tx/",        color: "#8b9cf7" },
+  bsc:   { label: "BNB Chain", ticker: "BNB",   explorer: "https://bscscan.com/tx/",         color: "#f0b90b" },
+  matic: { label: "Polygon",   ticker: "MATIC", explorer: "https://polygonscan.com/tx/",     color: "#8247e5" },
+  avax:  { label: "Avalanche", ticker: "AVAX",  explorer: "https://snowtrace.io/tx/",        color: "#e84142" },
+  arb:   { label: "Arbitrum",  ticker: "ETH",   explorer: "https://arbiscan.io/tx/",         color: "#12aaff" },
+  op:    { label: "Optimism",  ticker: "ETH",   explorer: "https://optimistic.etherscan.io/tx/", color: "#ff0420" },
+  base:  { label: "Base",      ticker: "ETH",   explorer: "https://basescan.org/tx/",        color: "#0052ff" },
+};
+
+const SOL_POPULAR = [
+  { symbol: "WIF",  name: "dogwifhat",  address: "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm", price: "2.14", change: -3.2 },
+  { symbol: "BONK", name: "Bonk",       address: "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263", price: "0.00003", change: 11.5 },
+  { symbol: "JUP",  name: "Jupiter",    address: "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN",  price: "0.84", change: -1.8 },
+  { symbol: "RAY",  name: "Raydium",    address: "4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R", price: "3.21", change: 4.2 },
+  { symbol: "MEME", name: "Memecoin",   address: "MEmEBgbsW68ZmkKBvTWJ4MVfRnURPkNXDyMfTt1CZSY",  price: "0.031", change: 17.4 },
+  { symbol: "PEPE", name: "Pepe (SOL)", address: "FQmTkMhEPGp4Je5mhe2Qt3RVEkeyA6X3isXEVB4BHYSB", price: "0.000012", change: 8.4 },
 ];
+
+const ETH_POPULAR = [
+  { symbol: "PEPE", name: "Pepe",       address: "0x6982508145454Ce325dDbE47a25d4ec3d2311933", price: "0.0000119", change: 8.4 },
+  { symbol: "SHIB", name: "Shiba Inu",  address: "0x95ad61b0a150d79219dcf64e1e6cc01f0b64c4ce", price: "0.0000098", change: 3.2 },
+  { symbol: "LINK", name: "Chainlink",  address: "0x514910771af9ca656af840dff83e8264ecf986ca", price: "14.50", change: 2.1 },
+  { symbol: "UNI",  name: "Uniswap",    address: "0x1f9840a85d5af5bf1d1762f925bdaddc4201f984", price: "9.20", change: -1.5 },
+];
+
+const SOL_MINT = "So11111111111111111111111111111111111111112";
 
 function genSpark(base: number, chg: number) {
   const pts: number[] = [];
@@ -27,9 +47,14 @@ function genSpark(base: number, chg: number) {
   return pts;
 }
 
+function getExplorerUrl(chain: string, txid: string): string {
+  return (CHAIN_INFO[chain]?.explorer || "https://solscan.io/tx/") + txid;
+}
+
 export default function Trade() {
-  const { wallets, activeWallet, solPrice, refreshWallets } = useApp();
+  const { wallets, activeWallet, solPrice, prices, refreshWallets } = useApp();
   const [tab, setTab] = useState<Tab>("buy");
+  const [chain, setChain] = useState("sol");
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
   const [results, setResults] = useState<any[]>([]);
@@ -39,12 +64,21 @@ export default function Trade() {
   const [sellPct, setSellPct] = useState("");
   const [slippage, setSlippage] = useState("1");
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<{ success: boolean; txid?: string; error?: string } | null>(null);
+  const [result, setResult] = useState<{ success: boolean; txid?: string; error?: string; chain?: string } | null>(null);
 
   const activeW = wallets[activeWallet];
-  const SOL_USD = parseFloat(solPrice || "0");
-  const amtUsd = amount ? (parseFloat(amount) * SOL_USD).toFixed(2) : null;
-  const PRESETS_BUY = ["0.1", "0.5", "1", "2", "5"];
+  const chainInfo = CHAIN_INFO[chain] || CHAIN_INFO.sol;
+
+  // Balance for the active chain
+  const solBal = parseFloat(activeW?.balance || "0");
+  const ethBal = parseFloat((activeW as any)?.ethBalance || "0");
+  const nativeBal = chain === "sol" ? solBal : ethBal;
+  const nativePrice = parseFloat(prices[chain === "arb" || chain === "op" || chain === "base" ? "eth" : chain] || "0");
+  const nativeUsd = (nativeBal * nativePrice).toFixed(2);
+  const amtUsd = amount && nativePrice > 0 ? (parseFloat(amount) * nativePrice).toFixed(2) : null;
+
+  const POPULAR = chain === "sol" ? SOL_POPULAR : ETH_POPULAR;
+  const PRESETS_BUY = chain === "sol" ? ["0.1", "0.5", "1", "2", "5"] : ["0.005", "0.01", "0.05", "0.1"];
   const PRESETS_SELL = ["25", "50", "75", "100"];
 
   useEffect(() => {
@@ -52,13 +86,24 @@ export default function Trade() {
     const timer = setTimeout(async () => {
       setSearching(true);
       try {
-        const d = await api.searchTokens(query);
+        const d = await api.searchTokens(query, chain === "sol" ? "solana" : chain === "eth" ? "ethereum" : chain === "bsc" ? "bsc" : "all");
         setResults(d.pairs || []);
       } catch {}
       setSearching(false);
     }, 500);
     return () => clearTimeout(timer);
-  }, [query]);
+  }, [query, chain]);
+
+  // Reset on chain change
+  useEffect(() => {
+    setSelected(null);
+    setTokenInfo(null);
+    setQuery("");
+    setResults([]);
+    setResult(null);
+    setAmount("");
+    setSellPct("");
+  }, [chain]);
 
   const selectToken = async (token: any) => {
     setSelected(token);
@@ -66,17 +111,21 @@ export default function Trade() {
     setQuery(token.symbol + " — " + token.name);
     setResult(null);
     try {
-      const info = await api.getTokenInfo(token.address);
-      setTokenInfo(info);
+      const info = chain === "sol"
+        ? await api.getTokenInfo(token.address)
+        : await api.getTokenInfoEth(token.address);
+      setTokenInfo(info || token);
     } catch { setTokenInfo(token); }
   };
 
   const selectByAddress = async (addr: string) => {
-    if (addr.length < 32) return;
+    if (addr.length < 20) return;
     try {
-      const info = await api.getTokenInfo(addr.trim());
+      const info = chain === "sol"
+        ? await api.getTokenInfo(addr.trim())
+        : await api.getTokenInfoEth(addr.trim());
       if (info) {
-        setSelected({ address: addr.trim(), symbol: info.symbol, name: info.name });
+        setSelected({ address: addr.trim(), symbol: info.symbol, name: info.name, chain: info.chain || chain });
         setTokenInfo(info);
         setQuery(info.symbol + " — " + info.name);
         setResult(null);
@@ -86,42 +135,64 @@ export default function Trade() {
 
   const executeTrade = async () => {
     if (!activeW) { setResult({ success: false, error: "No wallet connected. Go to Wallets first." }); return; }
-    if (!activeW.privateKey) { setResult({ success: false, error: "Private key not available. Re-import your wallet." }); return; }
     if (!selected) { setResult({ success: false, error: "Please select a token first." }); return; }
-    if (tab === "buy" && !amount) { setResult({ success: false, error: "Enter the SOL amount to spend." }); return; }
+    if (tab === "buy" && !amount) { setResult({ success: false, error: `Enter the ${chainInfo.ticker} amount to spend.` }); return; }
     if (tab === "sell" && !sellPct) { setResult({ success: false, error: "Enter the percentage to sell." }); return; }
 
-    // Balance check before sending
+    // Balance check
     if (tab === "buy") {
-      const bal = parseFloat(activeW.balance || "0");
       const amt = parseFloat(amount);
-      const MIN_RESERVE = 0.002; // keep ~0.002 SOL for tx fees
+      const MIN_FEE = chain === "sol" ? 0.002 : 0.001;
       if (isNaN(amt) || amt <= 0) { setResult({ success: false, error: "Enter a valid amount greater than 0." }); return; }
-      if (amt > bal - MIN_RESERVE) {
-        setResult({ success: false, error: `Insufficient SOL balance. You have ${bal.toFixed(4)} SOL — need at least ${(amt + MIN_RESERVE).toFixed(4)} SOL (including ~0.002 SOL network fee).` });
+      if (amt > nativeBal - MIN_FEE) {
+        setResult({
+          success: false,
+          error: `Insufficient ${chainInfo.ticker} balance. You have ${nativeBal.toFixed(chain === "sol" ? 4 : 6)} ${chainInfo.ticker} — need at least ${(amt + MIN_FEE).toFixed(chain === "sol" ? 4 : 6)} ${chainInfo.ticker} (including network fee).`
+        });
         return;
       }
     }
 
     setLoading(true); setResult(null);
     try {
-      const SOL_MINT = "So11111111111111111111111111111111111111112";
-      const r = await api.swap(tab === "buy"
-        ? { privateKey: activeW.privateKey, inputMint: SOL_MINT, outputMint: selected.address, amountSol: amount, tokenSymbol: selected.symbol, slippage }
-        : { privateKey: activeW.privateKey, inputMint: selected.address, outputMint: SOL_MINT, amountSol: (parseFloat(activeW.balance) * parseFloat(sellPct) / 100 * 0.98).toFixed(4), tokenSymbol: selected.symbol, slippage }
-      );
-      // Normalize error message for common issues
+      const privKey = chain === "sol" ? activeW.privateKey : (activeW as any).ethPrivateKey;
+      if (!privKey) {
+        setResult({ success: false, error: `No ${chainInfo.label} private key found for this wallet. Re-import using a seed phrase.` });
+        setLoading(false); return;
+      }
+
+      let r: any;
+      if (chain === "sol") {
+        r = await api.swap(tab === "buy"
+          ? { privateKey: privKey, inputMint: SOL_MINT, outputMint: selected.address, amountSol: amount, tokenSymbol: selected.symbol, slippage, chain: "sol" }
+          : { privateKey: privKey, inputMint: selected.address, outputMint: SOL_MINT, amountSol: (solBal * parseFloat(sellPct) / 100 * 0.98).toFixed(4), tokenSymbol: selected.symbol, slippage, chain: "sol" }
+        );
+      } else {
+        // EVM swap via Paraswap
+        r = await api.swap(
+          tab === "buy"
+            ? { privateKey: privKey, inputMint: "native", outputMint: selected.address, amountSol: amount, tokenSymbol: selected.symbol, slippage, chain }
+            : { privateKey: privKey, inputMint: selected.address, outputMint: "native", amountSol: (ethBal * parseFloat(sellPct) / 100 * 0.98).toFixed(8), tokenSymbol: selected.symbol, slippage, chain }
+        );
+      }
+
+      r.chain = chain;
+
+      // Normalize error messages
       if (!r.success && r.error) {
         let errMsg = r.error;
         if (/insufficient/i.test(errMsg) || /0x1$/i.test(errMsg)) {
-          errMsg = `Insufficient SOL balance to complete this trade. Current balance: ${parseFloat(activeW.balance || "0").toFixed(4)} SOL. Try a smaller amount or top up your wallet.`;
-        } else if (/no route/i.test(errMsg)) {
-          errMsg = "No swap route found for this token. Try increasing slippage or choosing a different token.";
+          errMsg = `Insufficient ${chainInfo.ticker} balance. Current balance: ${nativeBal.toFixed(chain === "sol" ? 4 : 6)} ${chainInfo.ticker}. Please top up and try again.`;
+        } else if (/no route|no swap/i.test(errMsg)) {
+          errMsg = "No swap route found for this token. Try increasing slippage or choose a more liquid token.";
         } else if (/timeout|timed out/i.test(errMsg)) {
-          errMsg = "Request timed out. The Solana network may be congested — please try again.";
+          errMsg = "Request timed out. The network may be congested — please try again.";
+        } else if (/not found|404/i.test(errMsg)) {
+          errMsg = "Token not found on this chain. Make sure you selected the right network.";
         }
         r.error = errMsg;
       }
+
       setResult(r);
       if (r.success) {
         refreshWallets();
@@ -130,19 +201,20 @@ export default function Trade() {
     } catch (e: any) {
       let errMsg = e.message || "Trade failed. Please try again.";
       if (/insufficient/i.test(errMsg) || /0x1$/i.test(errMsg)) {
-        errMsg = `Insufficient SOL balance. Current balance: ${parseFloat(activeW.balance || "0").toFixed(4)} SOL. Please top up your wallet.`;
+        errMsg = `Insufficient ${chainInfo.ticker} balance (${nativeBal.toFixed(chain === "sol" ? 4 : 6)} ${chainInfo.ticker}). Please top up.`;
       }
-      setResult({ success: false, error: errMsg });
+      setResult({ success: false, error: errMsg, chain });
     }
     setLoading(false);
   };
 
   return (
     <div className="max-w-xl mx-auto space-y-4">
+      {/* Header */}
       <div className="flex items-center gap-3 mb-2">
         <div>
           <h1 className="text-xl font-extrabold text-white tracking-tight">Swap Tokens</h1>
-          <p className="text-xs text-muted-foreground mt-0.5">Powered by Jupiter DEX Aggregator · Best price across 20+ DEXes</p>
+          <p className="text-xs text-muted-foreground mt-0.5">Jupiter (Solana) · Paraswap (EVM) · Best price across 20+ DEXes</p>
         </div>
         <div className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg" style={{ background: "rgba(0,225,122,0.08)", border: "1px solid rgba(0,225,122,0.15)" }}>
           <Zap className="w-3.5 h-3.5" style={{ color: "var(--green)" }} />
@@ -159,6 +231,36 @@ export default function Trade() {
           </p>
         </div>
       )}
+
+      {/* ── Chain Selector ── */}
+      <div className="rounded-2xl p-3 space-y-2" style={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }}>
+        <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
+          <Globe className="w-3 h-3" /> Network
+        </div>
+        <div className="grid grid-cols-4 gap-1.5">
+          {Object.entries(CHAIN_INFO).map(([key, info]) => (
+            <button key={key} onClick={() => setChain(key)}
+              className="py-1.5 rounded-xl text-[10px] font-bold transition-all text-center"
+              style={chain === key
+                ? { background: `${info.color}22`, color: info.color, border: `1px solid ${info.color}55` }
+                : { background: "hsl(var(--secondary))", color: "hsl(var(--muted-foreground))", border: "1px solid hsl(var(--border))" }
+              }>
+              {info.label.split(" ")[0]}
+            </button>
+          ))}
+        </div>
+        {activeW && (
+          <div className="text-[11px] text-muted-foreground pt-1 border-t border-border">
+            Balance: <span className="font-mono text-white font-bold">
+              {nativeBal.toFixed(chain === "sol" ? 4 : 6)} {chainInfo.ticker}
+            </span>
+            {nativePrice > 0 && <span className="text-muted-foreground"> ≈ ${nativeUsd}</span>}
+            {chain !== "sol" && !(activeW as any).ethPrivateKey && (
+              <span className="ml-2 text-yellow-500/80">⚠ Re-import wallet with seed phrase for EVM trading</span>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Buy / Sell Toggle */}
       <div className="flex rounded-xl p-1 gap-1" style={{ background: "hsl(var(--secondary))", border: "1px solid hsl(var(--border))" }}>
@@ -183,11 +285,11 @@ export default function Trade() {
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <input
             className="input-base pl-10 pr-10"
-            placeholder="Search name or paste contract address..."
+            placeholder={`Search ${chainInfo.label} token or paste address...`}
             value={query}
             onChange={e => {
               setQuery(e.target.value);
-              if (e.target.value.trim().length > 32 && !e.target.value.includes(" ")) selectByAddress(e.target.value);
+              if (e.target.value.trim().length > 20 && !e.target.value.includes(" ")) selectByAddress(e.target.value);
             }}
           />
           {searching
@@ -196,7 +298,7 @@ export default function Trade() {
           }
         </div>
 
-        {/* Dropdown results */}
+        {/* Search dropdown */}
         {results.length > 0 && (
           <div className="rounded-xl overflow-hidden max-h-64 overflow-y-auto" style={{ border: "1px solid hsl(var(--border))", background: "hsl(var(--popover))" }}>
             {results.map((r, i) => (
@@ -208,10 +310,10 @@ export default function Trade() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-bold text-white">{r.symbol}</div>
-                  <div className="text-[11px] text-muted-foreground truncate">{r.name}</div>
+                  <div className="text-[11px] text-muted-foreground truncate">{r.name} · {r.chain || chain}</div>
                 </div>
                 <div className="text-right">
-                  <div className="text-sm font-mono font-bold text-white">${r.price}</div>
+                  <div className="text-sm font-mono font-bold text-white">${parseFloat(r.price || "0").toFixed(r.price > 1 ? 4 : 8)}</div>
                   <div className={`text-[11px] font-semibold ${(r.priceChange24h || 0) >= 0 ? "price-up" : "price-down"}`}>
                     {(r.priceChange24h || 0) >= 0 ? "+" : ""}{(r.priceChange24h || 0).toFixed(2)}%
                   </div>
@@ -224,10 +326,12 @@ export default function Trade() {
         {/* Popular tokens */}
         {!selected && !query && (
           <div>
-            <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">Popular Meme Coins</div>
+            <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">
+              Popular on {chainInfo.label}
+            </div>
             <div className="grid grid-cols-3 gap-2">
-              {POPULAR_TOKENS.map(tok => (
-                <button key={tok.symbol} onClick={() => selectToken(tok)}
+              {POPULAR.map(tok => (
+                <button key={tok.symbol} onClick={() => selectToken({ ...tok, chain })}
                   className="flex flex-col p-2.5 rounded-xl text-left transition-all table-row-hover"
                   style={{ background: "hsl(var(--secondary))", border: "1px solid hsl(var(--border))" }}>
                   <div className="flex items-center justify-between mb-1.5">
@@ -251,6 +355,9 @@ export default function Trade() {
               <div>
                 <span className="font-bold text-white">{tokenInfo.symbol || selected.symbol}</span>
                 <span className="text-muted-foreground text-xs ml-2">{tokenInfo.name || selected.name}</span>
+                <span className="text-[10px] ml-2 px-1.5 py-0.5 rounded" style={{ background: `${chainInfo.color}22`, color: chainInfo.color }}>
+                  {chainInfo.label}
+                </span>
               </div>
               {tokenInfo.dexUrl && (
                 <a href={tokenInfo.dexUrl} target="_blank" rel="noreferrer"
@@ -282,10 +389,10 @@ export default function Trade() {
 
       {/* Live DexScreener chart */}
       {selected && (selected.pairAddress || selected.address) && (
-        <div className="rounded-2xl overflow-hidden" style={{ border: "1px solid hsl(var(--border))", height: 380 }}>
+        <div className="rounded-2xl overflow-hidden" style={{ border: "1px solid hsl(var(--border))", height: 360 }}>
           <iframe
             key={selected.address}
-            src={`https://dexscreener.com/${selected.chain || "solana"}/${selected.pairAddress || selected.address}?embed=1&theme=dark&info=0`}
+            src={`https://dexscreener.com/${selected.chain || (chain === "sol" ? "solana" : "ethereum")}/${selected.pairAddress || selected.address}?embed=1&theme=dark&info=0`}
             className="w-full h-full border-0"
             title={`${selected.symbol} chart`}
             loading="lazy"
@@ -297,11 +404,12 @@ export default function Trade() {
       <div className="rounded-2xl p-4 space-y-3" style={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }}>
         <div className="flex items-center justify-between">
           <div className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
-            {tab === "buy" ? "Amount (SOL)" : "Sell Percentage"}
+            {tab === "buy" ? `Amount (${chainInfo.ticker})` : "Sell Percentage"}
           </div>
           {activeW && tab === "buy" && (
             <div className="text-[11px] text-muted-foreground">
-              Balance: <span className="font-mono text-white font-bold">{parseFloat(activeW.balance || "0").toFixed(4)} SOL</span>
+              Bal: <span className="font-mono text-white font-bold">{nativeBal.toFixed(chain === "sol" ? 4 : 6)} {chainInfo.ticker}</span>
+              {nativePrice > 0 && <span className="text-muted-foreground"> (${nativeUsd})</span>}
             </div>
           )}
         </div>
@@ -316,7 +424,7 @@ export default function Trade() {
                     ? { background: "rgba(0,225,122,0.15)", color: "var(--green)", border: "1px solid rgba(0,225,122,0.35)" }
                     : { background: "hsl(var(--secondary))", color: "hsl(var(--muted-foreground))", border: "1px solid hsl(var(--border))" }
                   }>
-                  {p} SOL
+                  {p} {chainInfo.ticker}
                 </button>
               ))}
             </div>
@@ -325,10 +433,10 @@ export default function Trade() {
                 <input
                   className="flex-1 bg-transparent text-2xl font-black font-mono text-white outline-none border-none"
                   type="number" placeholder="0.00" value={amount}
-                  onChange={e => setAmount(e.target.value)} min="0" step="0.1"
+                  onChange={e => setAmount(e.target.value)} min="0" step="0.01"
                 />
                 <div className="text-right ml-3">
-                  <div className="text-sm font-bold text-white">SOL</div>
+                  <div className="text-sm font-bold text-white">{chainInfo.ticker}</div>
                   {amtUsd && <div className="text-xs text-muted-foreground">≈ ${amtUsd}</div>}
                 </div>
               </div>
@@ -382,10 +490,12 @@ export default function Trade() {
         className="w-full py-4 rounded-2xl font-black text-base transition-all flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
         style={tab === "buy"
           ? { background: "var(--green)", color: "#03150a", boxShadow: !loading ? "0 0 24px rgba(0,225,122,0.3)" : "none" }
-          : { background: "var(--red)", color: "#fff", boxShadow: !loading ? "0 0 24px rgba(255,75,75,0.25)" : "none" }
+          : { background: "var(--red)", color: "#fff", boxShadow: !loading ? "0 0 16px rgba(255,75,75,0.2)" : "none" }
         }>
         {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : tab === "buy" ? <TrendingUp className="w-5 h-5" /> : <TrendingDown className="w-5 h-5" />}
-        {loading ? "Executing…" : tab === "buy" ? `Buy via Jupiter` : `Sell via Jupiter`}
+        {loading ? "Executing…" : tab === "buy"
+          ? `Buy on ${chain === "sol" ? "Jupiter" : "Paraswap"}`
+          : `Sell on ${chain === "sol" ? "Jupiter" : "Paraswap"}`}
       </button>
 
       {/* Result */}
@@ -403,12 +513,12 @@ export default function Trade() {
               {result.success ? "Trade Executed Successfully!" : "Trade Failed"}
             </div>
             {result.txid && (
-              <a href={`https://solscan.io/tx/${result.txid}`} target="_blank" rel="noreferrer"
+              <a href={getExplorerUrl(result.chain || chain, result.txid)} target="_blank" rel="noreferrer"
                 className="flex items-center gap-1 text-xs mt-1 font-semibold hover:opacity-80" style={{ color: "var(--green)" }}>
-                View on Solscan <ExternalLink className="w-3 h-3" />
+                View on Explorer <ExternalLink className="w-3 h-3" />
               </a>
             )}
-            {result.error && <div className="text-xs text-muted-foreground mt-1">{result.error}</div>}
+            {result.error && <div className="text-xs text-muted-foreground mt-1 leading-relaxed">{result.error}</div>}
           </div>
         </div>
       )}

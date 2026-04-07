@@ -22,10 +22,12 @@ import {
   getBnbPrice,
   getAllPrices,
   sendEth,
+  evmTokenSwap,
   getEthTokenInfo,
   isValidEthAddress,
   isEvmChain,
   CHAIN_NATIVE,
+  CHAIN_ID,
 } from "../ethereum";
 import { startCopyTrading, stopCopyTrading, getCopyTradingStatus } from "../copyTrader";
 import bs58 from "bs58";
@@ -218,18 +220,92 @@ router.get("/trending", async (_req, res) => {
   }
 });
 
-// CoinGecko markets proxy — avoids rate-limit & CORS issues on Vercel
+// ── Markets cache (5 minutes TTL to avoid rate limits) ─────────────────────
+let _marketsCache: any[] | null = null;
+let _marketsCacheTime = 0;
+const MARKETS_TTL = 5 * 60_000;
+
+// Coin image map for CoinCap fallback
+const COIN_IMAGES: Record<string, string> = {
+  bitcoin:       "https://assets.coingecko.com/coins/images/1/thumb/bitcoin.png",
+  ethereum:      "https://assets.coingecko.com/coins/images/279/thumb/ethereum.png",
+  tether:        "https://assets.coingecko.com/coins/images/325/thumb/Tether.png",
+  "binance-coin":"https://assets.coingecko.com/coins/images/825/thumb/bnb-icon2_2x.png",
+  solana:        "https://assets.coingecko.com/coins/images/4128/thumb/solana.png",
+  "usd-coin":    "https://assets.coingecko.com/coins/images/6319/thumb/usdc.png",
+  xrp:           "https://assets.coingecko.com/coins/images/44/thumb/xrp-symbol-white-128.png",
+  dogecoin:      "https://assets.coingecko.com/coins/images/5/thumb/dogecoin.png",
+  cardano:       "https://assets.coingecko.com/coins/images/975/thumb/cardano.png",
+  avalanche:     "https://assets.coingecko.com/coins/images/12559/thumb/Avalanche_Circle_RedWhite_Trans.png",
+  polkadot:      "https://assets.coingecko.com/coins/images/12171/thumb/polkadot.png",
+  "shiba-inu":   "https://assets.coingecko.com/coins/images/11939/thumb/shiba.png",
+  polygon:       "https://assets.coingecko.com/coins/images/4713/thumb/polygon.png",
+  chainlink:     "https://assets.coingecko.com/coins/images/877/thumb/chainlink-new-logo.png",
+  uniswap:       "https://assets.coingecko.com/coins/images/12504/thumb/uni.jpg",
+  "wrapped-bitcoin": "https://assets.coingecko.com/coins/images/7598/thumb/wrapped_bitcoin_wbtc.png",
+  litecoin:      "https://assets.coingecko.com/coins/images/2/thumb/litecoin.png",
+  cosmos:        "https://assets.coingecko.com/coins/images/1481/thumb/cosmos_hub.png",
+  stellar:       "https://assets.coingecko.com/coins/images/100/thumb/Stellar_symbol_black_RGB.png",
+  "internet-computer": "https://assets.coingecko.com/coins/images/14495/thumb/Internet_Computer_logo.png",
+};
+
 router.get("/coingecko-markets", async (_req, res) => {
+  // Serve cached data if fresh
+  if (_marketsCache && _marketsCache.length > 0 && Date.now() - _marketsCacheTime < MARKETS_TTL) {
+    res.json(_marketsCache);
+    return;
+  }
+
+  // Primary: CoinGecko
   try {
     const r = await fetch(
       "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=100&page=1&sparkline=false",
       { signal: AbortSignal.timeout(9000) }
     );
-    if (!r.ok) throw new Error("rate limited");
-    res.json(await r.json());
-  } catch {
-    res.json([]);
-  }
+    if (r.ok) {
+      const data = await r.json();
+      if (Array.isArray(data) && data.length > 0) {
+        _marketsCache = data;
+        _marketsCacheTime = Date.now();
+        res.json(data);
+        return;
+      }
+    }
+  } catch {}
+
+  // Fallback: CoinCap API (no rate limits, always free)
+  try {
+    const r = await fetch(
+      "https://api.coincap.io/v2/assets?limit=100",
+      { signal: AbortSignal.timeout(9000) }
+    );
+    if (!r.ok) throw new Error("coincap failed");
+    const json = await r.json() as { data: any[] };
+    const data = (json.data || []).map((coin: any, i: number) => ({
+      id: coin.id,
+      symbol: coin.symbol.toLowerCase(),
+      name: coin.name,
+      image: COIN_IMAGES[coin.id] || `https://assets.coingecko.com/coins/images/1/thumb/${coin.id}.png`,
+      current_price: parseFloat(coin.priceUsd) || 0,
+      price_change_percentage_24h: parseFloat(coin.changePercent24Hr) || 0,
+      market_cap: parseFloat(coin.marketCapUsd) || 0,
+      total_volume: parseFloat(coin.volumeUsd24Hr) || 0,
+      market_cap_rank: i + 1,
+      high_24h: (parseFloat(coin.priceUsd) || 0) * 1.03,
+      low_24h:  (parseFloat(coin.priceUsd) || 0) * 0.97,
+      circulating_supply: parseFloat(coin.supply) || 0,
+    }));
+    if (data.length > 0) {
+      _marketsCache = data;
+      // Expire sooner so we retry CoinGecko quicker next time
+      _marketsCacheTime = Date.now() - MARKETS_TTL + 90_000;
+    }
+    res.json(data);
+    return;
+  } catch {}
+
+  // Serve stale cache if available, else empty
+  res.json(_marketsCache || []);
 });
 
 // CoinGecko 7-day chart proxy
@@ -452,8 +528,43 @@ router.post("/swap", async (req, res) => {
   if (!privateKey) { res.status(400).json({ error: "Private key required" }); return; }
 
   try {
-    if (chain === "eth") {
-      const result = await sendEth(privateKey, outputMint, parseFloat(amountSol));
+    // ── EVM token swap via Paraswap ──────────────────────────────────────────
+    if (chain && isEvmChain(chain)) {
+      // If outputMint is empty/native, just do a native transfer
+      if (!outputMint || outputMint === "native" || outputMint === "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE") {
+        if (!inputMint || inputMint === "native" || inputMint === "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE") {
+          res.status(400).json({ success: false, error: "Specify a token address to swap." });
+          return;
+        }
+      }
+      // Amount in wei (18 decimals assumed — works for most EVM tokens)
+      const amountWei = (BigInt(Math.floor(parseFloat(amountSol) * 1e18))).toString();
+      const slippageBps = Math.floor(parseFloat(slippage) * 100);
+      const result = await evmTokenSwap(
+        privateKey,
+        inputMint || "native",
+        outputMint || "native",
+        amountWei,
+        chain,
+        slippageBps,
+      );
+      const u = optSession(req);
+      if (u && result.success) {
+        u.trades++;
+        u.volume = (parseFloat(u.volume) + parseFloat(amountSol)).toFixed(2);
+        u.cashback = (parseFloat(u.cashback) + parseFloat(amountSol) * 0.001).toFixed(6);
+        u.tradeHistory.push({
+          id: crypto.randomUUID(),
+          type: inputMint && inputMint !== "native" ? "sell" : "buy",
+          token: (outputMint || "").slice(0, 6) || "TOKEN",
+          tokenSymbol: tokenSymbol || "TOKEN",
+          amount: amountSol,
+          chain,
+          pnl: "0.00",
+          time: new Date().toLocaleTimeString(),
+          txid: result.txid,
+        });
+      }
       res.json(result);
       return;
     }
