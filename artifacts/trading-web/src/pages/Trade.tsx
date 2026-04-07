@@ -249,6 +249,19 @@ export default function Trade() {
         )}
       </div>
 
+      {/* Live DexScreener chart */}
+      {selected && (selected.pairAddress || selected.address) && (
+        <div className="rounded-2xl overflow-hidden" style={{ border: "1px solid hsl(var(--border))", height: 380 }}>
+          <iframe
+            key={selected.address}
+            src={`https://dexscreener.com/${selected.chain || "solana"}/${selected.pairAddress || selected.address}?embed=1&theme=dark&info=0`}
+            className="w-full h-full border-0"
+            title={`${selected.symbol} chart`}
+            loading="lazy"
+          />
+        </div>
+      )}
+
       {/* Amount */}
       <div className="rounded-2xl p-4 space-y-3" style={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }}>
         <div className="flex items-center justify-between">

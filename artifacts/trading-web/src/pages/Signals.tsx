@@ -205,10 +205,21 @@ export default function Signals() {
                     {i + 1}
                   </div>
 
-                  {/* Token icon placeholder */}
-                  <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 text-base font-black"
-                    style={{ background: chainColor + "18", color: chainColor, border: `1px solid ${chainColor}30` }}>
-                    {pair.symbol?.slice(0, 2) || "??"}
+                  {/* Token icon */}
+                  <div className="w-9 h-9 rounded-xl flex-shrink-0 overflow-hidden flex items-center justify-center text-base font-black"
+                    style={{ background: chainColor + "18", border: `1px solid ${chainColor}30` }}>
+                    {pair.imageUrl ? (
+                      <img src={pair.imageUrl} alt={pair.symbol}
+                        className="w-full h-full object-cover rounded-xl"
+                        onError={e => {
+                          const el = e.currentTarget as HTMLImageElement;
+                          el.style.display = "none";
+                          (el.nextSibling as HTMLElement).style.display = "flex";
+                        }} />
+                    ) : null}
+                    <span style={{ color: chainColor, display: pair.imageUrl ? "none" : "flex" }}>
+                      {pair.symbol?.slice(0, 2) || "??"}
+                    </span>
                   </div>
 
                   {/* Token info */}

@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "wouter";
 import { useApp } from "@/contexts/AppContext";
 import { api } from "@/lib/api";
@@ -48,19 +48,20 @@ export default function Dashboard() {
   const [coinsLoading, setCoinsLoading] = useState(true);
   const [solChange, setSolChange] = useState(2.41);
   const [imgLoaded, setImgLoaded] = useState(false);
+  const [fearGreed, setFearGreed] = useState<{ value: string; label: string } | null>(null);
 
   useEffect(() => {
     refreshProfile();
     api.getTrades().then(d => setRecentTrades(d.history?.slice(0, 5) || [])).catch(() => {});
     fetchTopCoins();
+    api.getFearGreed().then(setFearGreed).catch(() => {});
   }, []);
 
   const fetchTopCoins = async () => {
     setCoinsLoading(true);
     try {
-      const res = await fetch("https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=20&page=1&sparkline=false", { signal: AbortSignal.timeout(7000) });
-      if (res.ok) {
-        const data = await res.json();
+      const data = await api.getMarkets();
+      if (Array.isArray(data) && data.length) {
         setTopCoins(data);
         const sol = data.find((c: MarketCoin) => c.id === "solana");
         if (sol) setSolChange(sol.price_change_percentage_24h);
@@ -68,6 +69,14 @@ export default function Dashboard() {
     } catch {}
     setCoinsLoading(false);
   };
+
+  const fgColor = fearGreed
+    ? parseInt(fearGreed.value) >= 75 ? "#22c55e"
+    : parseInt(fearGreed.value) >= 55 ? "#84cc16"
+    : parseInt(fearGreed.value) >= 45 ? "#eab308"
+    : parseInt(fearGreed.value) >= 25 ? "#f97316"
+    : "#ef4444"
+    : "#eab308";
 
   const activeW = wallets[activeWallet];
   const solNum = parseFloat(solPrice || "0");
@@ -131,6 +140,38 @@ export default function Dashboard() {
             <Link href="/wallets">
               <button className="btn-secondary">My Wallet</button>
             </Link>
+          </div>
+        </div>
+      </div>
+
+      {/* ── FEAR & GREED + TICKER BAR ── */}
+      <div className="flex flex-wrap items-center gap-3">
+        {fearGreed && (
+          <div className="flex items-center gap-3 rounded-2xl px-4 py-3 flex-1 min-w-[240px]"
+            style={{ background: "hsl(var(--card))", border: `1px solid ${fgColor}33` }}>
+            <div className="relative w-14 h-14 flex-shrink-0">
+              <svg viewBox="0 0 36 36" className="w-14 h-14 -rotate-90">
+                <circle cx="18" cy="18" r="15.9" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="3" />
+                <circle cx="18" cy="18" r="15.9" fill="none" stroke={fgColor} strokeWidth="3"
+                  strokeDasharray={`${parseFloat(fearGreed.value)} 100`} strokeLinecap="round" />
+              </svg>
+              <span className="absolute inset-0 flex items-center justify-center text-xs font-black" style={{ color: fgColor }}>
+                {fearGreed.value}
+              </span>
+            </div>
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Fear & Greed Index</div>
+              <div className="text-lg font-black mt-0.5" style={{ color: fgColor }}>{fearGreed.label}</div>
+              <div className="text-[10px] text-muted-foreground">Market sentiment indicator</div>
+            </div>
+          </div>
+        )}
+        <div className="flex-1 rounded-2xl px-4 py-3 min-w-[200px]"
+          style={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }}>
+          <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">SOL Price</div>
+          <div className="text-2xl font-black font-mono text-white">${parseFloat(solPrice || "0").toFixed(2)}</div>
+          <div className={`text-xs font-semibold mt-0.5 ${solChange >= 0 ? "price-up" : "price-down"}`}>
+            {solChange >= 0 ? "▲" : "▼"} {Math.abs(solChange).toFixed(2)}% today
           </div>
         </div>
       </div>

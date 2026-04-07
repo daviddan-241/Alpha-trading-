@@ -54,6 +54,9 @@ export const api = {
   getEthPrice:   () => get<{ eth: string; bnb: string }>("/eth-price"),
   getAllPrices:   () => get<Record<string, string>>("/prices"),
   getTrending:   () => get<{ pairs: any[] }>("/trending"),
+  getMarkets:    () => get<any[]>("/coingecko-markets"),
+  getChart:      (id: string) => get<{ prices: { t: number; p: number }[] }>(`/coingecko-chart/${id}`),
+  getFearGreed:  () => get<{ value: string; label: string }>("/fear-greed"),
   getTokenInfo:  (mint: string) => get<any>(`/token-info/${mint}`),
   getTokenInfoEth:(addr: string) => get<any>(`/token-info-eth/${addr}`),
   searchTokens:  (q: string, chain = "all") =>

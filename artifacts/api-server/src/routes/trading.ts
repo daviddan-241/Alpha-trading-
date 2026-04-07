@@ -210,10 +210,52 @@ router.get("/trending", async (_req, res) => {
       quoteToken: p.quoteToken?.symbol || "SOL",
       txns24h: (p.txns?.h24?.buys || 0) + (p.txns?.h24?.sells || 0),
       isBoosted: boostedArr.some((b: any) => b.tokenAddress === p.baseToken?.address),
+      imageUrl: p.info?.imageUrl || "",
     }));
     res.json({ pairs });
   } catch {
     res.json({ pairs: [] });
+  }
+});
+
+// CoinGecko markets proxy — avoids rate-limit & CORS issues on Vercel
+router.get("/coingecko-markets", async (_req, res) => {
+  try {
+    const r = await fetch(
+      "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=100&page=1&sparkline=false",
+      { signal: AbortSignal.timeout(9000) }
+    );
+    if (!r.ok) throw new Error("rate limited");
+    res.json(await r.json());
+  } catch {
+    res.json([]);
+  }
+});
+
+// CoinGecko 7-day chart proxy
+router.get("/coingecko-chart/:id", async (req, res) => {
+  try {
+    const r = await fetch(
+      `https://api.coingecko.com/api/v3/coins/${req.params.id}/market_chart?vs_currency=usd&days=7`,
+      { signal: AbortSignal.timeout(9000) }
+    );
+    if (!r.ok) throw new Error("not found");
+    const data = await r.json() as { prices?: [number, number][] };
+    res.json({ prices: (data.prices || []).map(([ts, p]: [number, number]) => ({ t: ts, p })) });
+  } catch {
+    res.json({ prices: [] });
+  }
+});
+
+// Fear & Greed index proxy
+router.get("/fear-greed", async (_req, res) => {
+  try {
+    const r = await fetch("https://api.alternative.me/fng/?limit=1", { signal: AbortSignal.timeout(6000) });
+    const d = await r.json() as { data?: Array<{ value: string; value_classification: string }> };
+    const item = d.data?.[0];
+    res.json({ value: item?.value || "50", label: item?.value_classification || "Neutral" });
+  } catch {
+    res.json({ value: "50", label: "Neutral" });
   }
 });
 

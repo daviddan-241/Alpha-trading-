@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useLocation } from "wouter";
 import { Search, TrendingUp, TrendingDown, RefreshCw, ExternalLink, Star, X, ShoppingCart, DollarSign, BarChart2, Clock } from "lucide-react";
 import Sparkline from "@/components/Sparkline";
+import { api } from "@/lib/api";
 
 interface Coin {
   id: string; symbol: string; name: string; image: string;
@@ -59,6 +60,7 @@ export default function Markets() {
   const [selected, setSelected] = useState<Coin | null>(null);
   const [detail, setDetail] = useState<CoinDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [chartPts, setChartPts] = useState<{ t: number; p: number }[]>([]);
   const [watchlist, setWatchlist] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem("watchlist") || "[]"); } catch { return []; }
   });
@@ -68,14 +70,13 @@ export default function Markets() {
 
   const fetchCoins = useCallback(async () => {
     try {
-      const res = await fetch(
-        "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=100&page=1&sparkline=false",
-        { signal: AbortSignal.timeout(8000) }
-      );
-      if (!res.ok) throw new Error("rate limited");
-      const data = await res.json();
-      setCoins(data);
-      setLastUpdated(new Date());
+      const data = await api.getMarkets();
+      if (Array.isArray(data) && data.length) {
+        setCoins(data);
+        setLastUpdated(new Date());
+      } else if (coins.length === 0) {
+        setCoins(FALLBACK);
+      }
     } catch {
       if (coins.length === 0) setCoins(FALLBACK);
     }
@@ -107,9 +108,14 @@ export default function Markets() {
     setSelected(coin);
     setDetailLoading(true);
     setDetail(null);
+    setChartPts([]);
     try {
-      const res = await fetch(`https://api.coingecko.com/api/v3/coins/${coin.id}?localization=false&market_data=true&community_data=false&developer_data=false`, { signal: AbortSignal.timeout(6000) });
-      if (res.ok) setDetail(await res.json());
+      const [chartData, coinDetail] = await Promise.allSettled([
+        api.getChart(coin.id),
+        fetch(`https://api.coingecko.com/api/v3/coins/${coin.id}?localization=false&market_data=true&community_data=false&developer_data=false`, { signal: AbortSignal.timeout(6000) }).then(r => r.ok ? r.json() : null),
+      ]);
+      if (chartData.status === "fulfilled" && chartData.value.prices?.length) setChartPts(chartData.value.prices);
+      if (coinDetail.status === "fulfilled" && coinDetail.value) setDetail(coinDetail.value);
     } catch {}
     setDetailLoading(false);
   };
@@ -288,9 +294,41 @@ export default function Markets() {
             </div>
 
             <div className="p-5 space-y-4">
-              {/* Chart */}
-              <div className="flex justify-center py-2">
-                <Sparkline data={genSpark(selected.current_price, selected.price_change_percentage_24h)} width={400} height={80} />
+              {/* 7-day chart */}
+              <div className="rounded-xl overflow-hidden" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)" }}>
+                <div className="flex items-center justify-between px-3 pt-3 pb-1">
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">7-Day Price Chart</span>
+                  <span className={`text-xs font-bold ${selected.price_change_percentage_24h >= 0 ? "price-up" : "price-down"}`}>
+                    {selected.price_change_percentage_24h >= 0 ? "+" : ""}{selected.price_change_percentage_24h?.toFixed(2)}%
+                  </span>
+                </div>
+                {chartPts.length > 1 ? (() => {
+                  const W = 400, H = 80;
+                  const ps = chartPts.map(c => c.p);
+                  const mn = Math.min(...ps), mx = Math.max(...ps);
+                  const range = mx - mn || 1;
+                  const pts = chartPts.map((c, i) => {
+                    const x = (i / (chartPts.length - 1)) * W;
+                    const y = H - ((c.p - mn) / range) * (H - 8) - 4;
+                    return `${x},${y}`;
+                  }).join(" ");
+                  const isUp = chartPts[chartPts.length - 1].p >= chartPts[0].p;
+                  const col = isUp ? "#00e17a" : "#ff4b4b";
+                  return (
+                    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: 90 }}>
+                      <defs>
+                        <linearGradient id="cg" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor={col} stopOpacity="0.25" />
+                          <stop offset="100%" stopColor={col} stopOpacity="0" />
+                        </linearGradient>
+                      </defs>
+                      <polygon points={`0,${H} ${pts} ${W},${H}`} fill="url(#cg)" />
+                      <polyline points={pts} fill="none" stroke={col} strokeWidth="1.5" strokeLinejoin="round" />
+                    </svg>
+                  );
+                })() : (
+                  <Sparkline data={genSpark(selected.current_price, selected.price_change_percentage_24h)} width={400} height={80} />
+                )}
               </div>
 
               {/* BUY / SELL CTA */}
